@@ -83,4 +83,4 @@ if __name__ == "__main__":
     #sim.run_animation(num_frames=100, interval=100)
     
     # Alternatively, run a specific number of steps and show the final state
-    sim.run_steps(steps=250)
+    sim.run_steps(steps=26)

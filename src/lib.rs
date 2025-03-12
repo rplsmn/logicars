@@ -538,25 +538,33 @@ impl DiffLogicCA {
     
     // Train the model to learn a specific pattern transition
     pub fn train(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32, epochs: usize) {
-        let height = initial_states.shape()[0];
-        let width = initial_states.shape()[1];
+        let n_samples = initial_states.shape()[0];
+        let height = initial_states.shape()[1];
+        let width = initial_states.shape()[2];
         
-        println!("Starting training for {} epochs", epochs);
+        // Safety check - make sure dimensions match
+        assert_eq!(initial_states.shape()[1], target_states.shape()[1], "Height mismatch");
+        assert_eq!(initial_states.shape()[2], target_states.shape()[2], "Width mismatch");
+        assert_eq!(initial_states.shape()[3], target_states.shape()[3], "Channel mismatch");
+        assert_eq!(height, self.height, "Height doesn't match CA grid height");
+        assert_eq!(width, self.width, "Width doesn't match CA grid width");
+        
+        println!("Starting training for {} epochs with {} samples", epochs, n_samples);
         
         for epoch in 0..epochs {
             let mut total_loss = 0.0;
             
             // For each training example
-            for i in 0..initial_states.shape()[0] {
-                // Get the initial state
-                let init_state = initial_states.slice(s![.., .., .., ..]);
+            for i in 0..n_samples {
+                // IMPORTANT: These bounds checks prevent accessing beyond array dimensions
+                let init_state = initial_states.slice(s![i, ..height, ..width, ..]);
                 
                 // Convert to float for soft computation
                 let mut soft_state = Array3::<f32>::zeros((height, width, self.state_size));
                 for h in 0..height {
                     for w in 0..width {
                         for s in 0..self.state_size {
-                            soft_state[[h, w, s]] = if init_state[[i, h, w, s]] { 1.0 } else { 0.0 };
+                            soft_state[[h, w, s]] = if init_state[[h, w, s]] { 1.0 } else { 0.0 };
                         }
                     }
                 }
@@ -610,9 +618,19 @@ impl DiffLogicCA {
                 for h in 0..height {
                     for w in 0..width {
                         for s in 0..self.state_size {
-                            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-                            let diff = next_state[[h, w, s]] - target;
-                            loss += diff * diff;
+                            // IMPORTANT FIX: Make sure to check target_states indices are in bounds
+                            // Only access target_states with valid indices
+                            if i < target_states.shape()[0] && 
+                               h < target_states.shape()[1] && 
+                               w < target_states.shape()[2] && 
+                               s < target_states.shape()[3] {
+                                let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                                let diff = next_state[[h, w, s]] - target;
+                                loss += diff * diff;
+                            } else {
+                                println!("Warning: Target index [{}, {}, {}, {}] is out of bounds for shape {:?}", 
+                                         i, h, w, s, target_states.shape());
+                            }
                         }
                     }
                 }
@@ -620,16 +638,22 @@ impl DiffLogicCA {
                 
                 // Backward pass - update circuit parameters
                 // Compute output gradients - derivative of squared error
-let mut output_grads = Array3::<f32>::zeros((height, width, self.state_size));
-for h in 0..height {
-    for w in 0..width {
-        for s in 0..self.state_size {
-            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-            // Gradient of (output - target)²: 2 * (output - target)
-            output_grads[[h, w, s]] = 2.0 * (next_state[[h, w, s]] - target);
-        }
-    }
-}
+                let mut output_grads = Array3::<f32>::zeros((height, width, self.state_size));
+                for h in 0..height {
+                    for w in 0..width {
+                        for s in 0..self.state_size {
+                            // IMPORTANT FIX: Make sure to check target_states indices are in bounds
+                            if i < target_states.shape()[0] && 
+                               h < target_states.shape()[1] && 
+                               w < target_states.shape()[2] && 
+                               s < target_states.shape()[3] {
+                                let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                                // Gradient of (output - target)²: 2 * (output - target)
+                                output_grads[[h, w, s]] = 2.0 * (next_state[[h, w, s]] - target);
+                            }
+                        }
+                    }
+                }
 
 // Backward pass - update perception and update circuits
 for h in 0..height {
