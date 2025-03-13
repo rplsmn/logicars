@@ -562,193 +562,196 @@ impl DiffLogicCA {
     }
     
     // Train for a single epoch and return soft and hard loss values
-    fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32) -> (f32, f32) {
-        use rayon::prelude::*;
-        use std::sync::{Arc, Mutex};
-        
-        let n_samples = initial_states.shape()[0];
-        let height = initial_states.shape()[1];
-        let width = initial_states.shape()[2];
-        
-        // Process in smaller batches
-        let batch_size = 64;
-        let num_batches = (n_samples + batch_size - 1) / batch_size;
-        
-        // Create thread-safe shared state for the model
-        let perception_circuits = Arc::new(Mutex::new(&mut self.perception_circuits));
-        let update_circuit = Arc::new(Mutex::new(&mut self.update_circuit));
-        
-        // Process batches in parallel
-        let batch_results: Vec<(f32, f32)> = (0..num_batches)
-            .collect::<Vec<_>>()
-            .par_iter()
-            .map(|&batch_idx| {
-                let start_idx = batch_idx * batch_size;
-                let end_idx = std::cmp::min(start_idx + batch_size, n_samples);
+fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32) -> (f32, f32) {
+    use rayon::prelude::*;
+    use std::sync::{Arc, Mutex};
+    
+    // Clone the immutable data we need from self
+    let width = self.width;
+    let height = self.height;
+    let state_size = self.state_size;
+    
+    let n_samples = initial_states.shape()[0];
+    
+    // Process in smaller batches
+    let batch_size = 64;
+    let num_batches = (n_samples + batch_size - 1) / batch_size;
+    
+    // Create thread-safe shared state for the model
+    let perception_circuits = Arc::new(Mutex::new(&mut self.perception_circuits));
+    let update_circuit = Arc::new(Mutex::new(&mut self.update_circuit));
+    
+    // Process batches in parallel
+    let batch_results: Vec<(f32, f32)> = (0..num_batches)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|&batch_idx| {
+            let start_idx = batch_idx * batch_size;
+            let end_idx = std::cmp::min(start_idx + batch_size, n_samples);
+            
+            let mut batch_soft_loss = 0.0;
+            let mut batch_hard_loss = 0.0;
+            
+            for i in start_idx..end_idx {
+                // Get initial state for this sample
+                let init_state = initial_states.slice(s![i, ..height, ..width, ..]);
                 
-                let mut batch_soft_loss = 0.0;
-                let mut batch_hard_loss = 0.0;
+                // Convert to float for soft computation
+                let mut soft_state = Array3::<f32>::zeros((height, width, state_size));
+                for h in 0..height {
+                    for w in 0..width {
+                        for s in 0..state_size {
+                            soft_state[[h, w, s]] = if init_state[[h, w, s]] { 1.0 } else { 0.0 };
+                        }
+                    }
+                }
                 
-                for i in start_idx..end_idx {
-                    // Get initial state for this sample
-                    let init_state = initial_states.slice(s![i, ..height, ..width, ..]);
-                    
-                    // Convert to float for soft computation
-                    let mut soft_state = Array3::<f32>::zeros((height, width, self.state_size));
-                    for h in 0..height {
-                        for w in 0..width {
-                            for s in 0..self.state_size {
-                                soft_state[[h, w, s]] = if init_state[[h, w, s]] { 1.0 } else { 0.0 };
-                            }
+                // Forward pass - compute predictions
+                let mut perceptions = Vec::with_capacity(perception_circuits.lock().unwrap().len());
+                for _ in 0..perception_circuits.lock().unwrap().len() {
+                    perceptions.push(Array2::<f32>::zeros((height, width)));
+                }
+                
+                // Process each cell with perception circuits
+                for h in 0..height {
+                    for w in 0..width {
+                        // Get neighborhood for this cell
+                        let neighborhood = Self::get_neighborhood_soft_static(&soft_state, h, w, height, width, state_size);
+                        
+                        // Process neighborhood with perception circuits
+                        let perception_lock = perception_circuits.lock().unwrap();
+                        for (p_idx, circuit) in perception_lock.iter().enumerate() {
+                            let result = circuit.process_neighborhood_soft(&neighborhood);
+                            perceptions[p_idx][[h, w]] = result;
                         }
                     }
-                    
-                    // Forward pass - compute predictions
-                    let mut perceptions = Vec::with_capacity(self.perception_circuits.len());
-                    for _ in 0..self.perception_circuits.len() {
-                        perceptions.push(Array2::<f32>::zeros((height, width)));
-                    }
-                    
-                    // Process each cell with perception circuits
-                    for h in 0..height {
-                        for w in 0..width {
-                            // Get neighborhood for this cell
-                            let neighborhood = self.get_neighborhood_soft(&soft_state, h, w);
-                            
-                            // Process neighborhood with perception circuits
-                            let perception_lock = perception_circuits.lock().unwrap();
-                            for (p_idx, circuit) in perception_lock.iter().enumerate() {
-                                let result = circuit.process_neighborhood_soft(&neighborhood);
-                                perceptions[p_idx][[h, w]] = result;
-                            }
+                }
+                
+                // Process results with update circuit (soft computation)
+                let mut next_state_soft = Array3::<f32>::zeros((height, width, state_size));
+                let mut next_state_hard = Array3::<bool>::from_elem((height, width, state_size), false);
+                
+                for h in 0..height {
+                    for w in 0..width {
+                        let mut perception_values = Vec::with_capacity(perceptions.len());
+                        for p in &perceptions {
+                            perception_values.push(p[[h, w]]);
+                        }
+                        
+                        let mut current_state = Vec::with_capacity(state_size);
+                        for s in 0..state_size {
+                            current_state.push(soft_state[[h, w, s]]);
+                        }
+                        
+                        // Compute next state (soft)
+                        let update_lock = update_circuit.lock().unwrap();
+                        let result_soft = update_lock.compute_next_state_soft(&perception_values, &current_state);
+                        
+                        // Convert current state to boolean for hard computation
+                        let current_state_bool: Vec<bool> = current_state.iter().map(|&x| x > 0.5).collect();
+                        
+                        // Get perception values as boolean
+                        let perception_values_bool: Vec<bool> = perception_values.iter().map(|&x| x > 0.5).collect();
+                        
+                        // Compute next state (hard)
+                        let result_hard = update_lock.compute_next_state(&perception_values_bool, &current_state_bool);
+                        
+                        for s in 0..state_size {
+                            next_state_soft[[h, w, s]] = result_soft[s];
+                            next_state_hard[[h, w, s]] = result_hard[s];
                         }
                     }
-                    
-                    // Process results with update circuit (soft computation)
-                    let mut next_state_soft = Array3::<f32>::zeros((height, width, self.state_size));
-                    let mut next_state_hard = Array3::<bool>::from_elem((height, width, self.state_size), false);
-                    
-                    for h in 0..height {
-                        for w in 0..width {
-                            let mut perception_values = Vec::with_capacity(self.perception_circuits.len());
-                            for p in &perceptions {
-                                perception_values.push(p[[h, w]]);
-                            }
+                }
+                
+                // Compute soft loss
+                let mut sample_soft_loss = 0.0;
+                let mut sample_hard_loss = 0.0;
+                
+                for h in 0..height {
+                    for w in 0..width {
+                        for s in 0..state_size {
+                            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                            let target_bool = target_states[[i, h, w, s]];
                             
-                            let mut current_state = Vec::with_capacity(self.state_size);
-                            for s in 0..self.state_size {
-                                current_state.push(soft_state[[h, w, s]]);
-                            }
+                            // Soft loss
+                            let diff_soft = next_state_soft[[h, w, s]] - target;
+                            sample_soft_loss += diff_soft * diff_soft;
                             
-                            // Compute next state (soft)
-                            let update_lock = update_circuit.lock().unwrap();
-                            let result_soft = update_lock.compute_next_state_soft(&perception_values, &current_state);
-                            
-                            // Convert current state to boolean for hard computation
-                            let current_state_bool: Vec<bool> = current_state.iter().map(|&x| x > 0.5).collect();
-                            
-                            // Get perception values as boolean
-                            let perception_values_bool: Vec<bool> = perception_values.iter().map(|&x| x > 0.5).collect();
-                            
-                            // Compute next state (hard)
-                            let result_hard = update_lock.compute_next_state(&perception_values_bool, &current_state_bool);
-                            
-                            for s in 0..self.state_size {
-                                next_state_soft[[h, w, s]] = result_soft[s];
-                                next_state_hard[[h, w, s]] = result_hard[s];
-                            }
-                        }
-                    }
-                    
-                    // Compute soft loss
-                    let mut sample_soft_loss = 0.0;
-                    let mut sample_hard_loss = 0.0;
-                    
-                    for h in 0..height {
-                        for w in 0..width {
-                            for s in 0..self.state_size {
-                                let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-                                let target_bool = target_states[[i, h, w, s]];
-                                
-                                // Soft loss
-                                let diff_soft = next_state_soft[[h, w, s]] - target;
-                                sample_soft_loss += diff_soft * diff_soft;
-                                
-                                // Hard loss
-                                if next_state_hard[[h, w, s]] != target_bool {
-                                    sample_hard_loss += 1.0;
-                                }
-                            }
-                        }
-                    }
-                    
-                    batch_soft_loss += sample_soft_loss;
-                    batch_hard_loss += sample_hard_loss;
-                    
-                    // Backward pass
-                    let mut output_grads = Array3::<f32>::zeros((height, width, self.state_size));
-                    for h in 0..height {
-                        for w in 0..width {
-                            for s in 0..self.state_size {
-                                let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-                                output_grads[[h, w, s]] = 2.0 * (next_state_soft[[h, w, s]] - target);
-                            }
-                        }
-                    }
-                    
-                    // Update perception and update circuits
-                    for h in 0..height {
-                        for w in 0..width {
-                            // Extract gradients for this cell
-                            let mut cell_grads = Vec::with_capacity(self.state_size);
-                            for s in 0..self.state_size {
-                                cell_grads.push(output_grads[[h, w, s]]);
-                            }
-                            
-                            // Get inputs to update circuit
-                            let mut update_inputs = Vec::new();
-                            for p in &perceptions {
-                                update_inputs.push(p[[h, w]]);
-                            }
-                            let mut current_state = Vec::with_capacity(self.state_size);
-                            for s in 0..self.state_size {
-                                current_state.push(soft_state[[h, w, s]]);
-                            }
-                            update_inputs.extend_from_slice(&current_state);
-                            
-                            // Backpropagate through update circuit
-                            let mut update_lock = update_circuit.lock().unwrap();
-                            let perception_grads = update_lock.backward(&update_inputs, &cell_grads, learning_rate);
-                            
-                            // Prepare perception gradients
-                            let perception_circuit_grads = perception_grads[0..self.perception_circuits.len()].to_vec();
-                            
-                            // Pre-compute all neighborhoods
-                            let neighborhood = self.get_neighborhood_soft(&soft_state, h, w);
-                            
-                            // Update each circuit
-                            let mut perception_lock = perception_circuits.lock().unwrap();
-                            for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
-                                circuit.backward(&neighborhood, perception_circuit_grads[p_idx], learning_rate);
+                            // Hard loss
+                            if next_state_hard[[h, w, s]] != target_bool {
+                                sample_hard_loss += 1.0;
                             }
                         }
                     }
                 }
                 
-                (batch_soft_loss, batch_hard_loss)
-            })
-            .collect();
-        
-        // Sum up batch results
-        let total_soft_loss: f32 = batch_results.iter().map(|(soft, _)| soft).sum();
-        let total_hard_loss: f32 = batch_results.iter().map(|(_, hard)| hard).sum();
-        
-        // Normalize by number of samples
-        let normalized_soft_loss = total_soft_loss / (n_samples as f32);
-        let normalized_hard_loss = total_hard_loss / (n_samples as f32);
-        
-        (normalized_soft_loss, normalized_hard_loss)
-    }
+                batch_soft_loss += sample_soft_loss;
+                batch_hard_loss += sample_hard_loss;
+                
+                // Backward pass
+                let mut output_grads = Array3::<f32>::zeros((height, width, state_size));
+                for h in 0..height {
+                    for w in 0..width {
+                        for s in 0..state_size {
+                            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                            output_grads[[h, w, s]] = 2.0 * (next_state_soft[[h, w, s]] - target);
+                        }
+                    }
+                }
+                
+                // Update perception and update circuits
+                for h in 0..height {
+                    for w in 0..width {
+                        // Extract gradients for this cell
+                        let mut cell_grads = Vec::with_capacity(state_size);
+                        for s in 0..state_size {
+                            cell_grads.push(output_grads[[h, w, s]]);
+                        }
+                        
+                        // Get inputs to update circuit
+                        let mut update_inputs = Vec::new();
+                        for p in &perceptions {
+                            update_inputs.push(p[[h, w]]);
+                        }
+                        let mut current_state = Vec::with_capacity(state_size);
+                        for s in 0..state_size {
+                            current_state.push(soft_state[[h, w, s]]);
+                        }
+                        update_inputs.extend_from_slice(&current_state);
+                        
+                        // Backpropagate through update circuit
+                        let mut update_lock = update_circuit.lock().unwrap();
+                        let perception_grads = update_lock.backward(&update_inputs, &cell_grads, learning_rate);
+                        
+                        // Prepare perception gradients
+                        let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
+                        
+                        // Pre-compute all neighborhoods
+                        let neighborhood = Self::get_neighborhood_soft_static(&soft_state, h, w, height, width, state_size);
+                        
+                        // Update each circuit
+                        let mut perception_lock = perception_circuits.lock().unwrap();
+                        for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
+                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], learning_rate);
+                        }
+                    }
+                }
+            }
+            
+            (batch_soft_loss, batch_hard_loss)
+        })
+        .collect();
+    
+    // Sum up batch results
+    let total_soft_loss: f32 = batch_results.iter().map(|(soft, _)| soft).sum();
+    let total_hard_loss: f32 = batch_results.iter().map(|(_, hard)| hard).sum();
+    
+    // Normalize by number of samples
+    let normalized_soft_loss = total_soft_loss / (n_samples as f32);
+    let normalized_hard_loss = total_hard_loss / (n_samples as f32);
+    
+    (normalized_soft_loss, normalized_hard_loss)
+}
     
     // Get the current state of the grid
     pub fn get_grid(&self) -> &Array3<bool> {
@@ -761,18 +764,17 @@ impl DiffLogicCA {
         self.grid = grid;
     }
 
-// Get the Moore neighborhood for a cell, with soft (float) values
-fn get_neighborhood_soft(&self, grid: &Array3<f32>, row: usize, col: usize) -> Vec<f32> {
-    let mut neighborhood = Vec::with_capacity(9 * self.state_size);
+fn get_neighborhood_soft_static(grid: &Array3<f32>, row: usize, col: usize, height: usize, width: usize, state_size: usize) -> Vec<f32> {
+    let mut neighborhood = Vec::with_capacity(9 * state_size);
     
     // Iterate over 3x3 neighborhood, handling boundary conditions
     for dr in [-1, 0, 1].iter() {
         for dc in [-1, 0, 1].iter() {
-            let r = (row as isize + dr).rem_euclid(self.height as isize) as usize;
-            let c = (col as isize + dc).rem_euclid(self.width as isize) as usize;
+            let r = (row as isize + dr).rem_euclid(height as isize) as usize;
+            let c = (col as isize + dc).rem_euclid(width as isize) as usize;
             
             // Add all state bits for this neighbor
-            for s in 0..self.state_size {
+            for s in 0..state_size {
                 neighborhood.push(grid[[r, c, s]]);
             }
         }
