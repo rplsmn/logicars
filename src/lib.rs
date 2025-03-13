@@ -407,10 +407,18 @@ pub struct UpdateCircuit {
 }
 
 impl UpdateCircuit {
-    pub fn new(input_size: usize, state_size: usize, rng: &mut ThreadRng) -> Self {
+    pub fn new(input_size: usize, _state_size: usize, rng: &mut ThreadRng) -> Self {
         // Architecture for the update circuit:
-        // input_size inputs -> 128 -> 64 -> 32 -> 16 -> 8 -> state_size outputs
-        let layer_sizes = vec![input_size, 128, 64, 32, 16, 8, state_size];
+        // input_size inputs -> 16 layers of 128 nodes -> 64 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1 outputs
+        let mut layer_sizes = vec![input_size];
+        
+        // Add 16 layers of 128 nodes
+        for _ in 0..16 {
+            layer_sizes.push(128);
+        }
+        
+        // Add the remaining layers
+        layer_sizes.extend_from_slice(&[64, 32, 16, 8, 4, 2, 1]);
         
         UpdateCircuit {
             circuit: Circuit::new(&layer_sizes, rng),
