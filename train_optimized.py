@@ -156,7 +156,7 @@ def evaluate_model(ca, test_configs, test_targets, n_samples=10, visualize=False
     print(f"Model accuracy: {accuracy:.2f}% ({correct}/{total})")
     return accuracy
 
-def train_gol_model(epochs=200, learning_rate=0.001, visualize=False, save_loss_plot=True):
+def train_gol_model(epochs=20, learning_rate=0.001, visualize=False, save_loss_plot=True):
     """Train a DiffLogic CA to learn Game of Life rules"""
     print("Generating training data...")
     configs, targets = generate_gol_training_data()
