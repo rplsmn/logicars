@@ -184,8 +184,8 @@ def train_gol_model():
     ca = logicars.PyDiffLogicCA(3, 3, 1, 16)
     
     # Training parameters
-    learning_rate = 0.01
-    epochs = 2
+    learning_rate = 0.001
+    epochs = 200
     
     print(f"Training for {epochs} epochs...")
     start_time = time.time()
