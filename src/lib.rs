@@ -195,8 +195,8 @@ impl LogicGate {
     pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
         
         // detect if we're stuck
-        let is_dominated = self.probability.iter().any(|&p| p > 0.4);
-        let needs_reset = is_dominated && rand::random::<f32>() < 0.05;
+        let is_dominated = self.probability.iter().any(|&p| p > 0.9);
+        let needs_reset = is_dominated && rand::random::<f32>() < 0.01;
 
         if needs_reset {
             // Reset this gate's probabilities

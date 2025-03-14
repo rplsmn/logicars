@@ -174,6 +174,8 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     # Initialize loss tracker
     loss_tracker = LossTracker()
     
+    min_temperature = 0.02    # Don't go below this
+
     print(f"Training for {epochs} epochs...")
     start_time = time.time()
     
@@ -185,8 +187,20 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
         epoch_start = time.time()
         for epoch in range(epochs):
             
+            # Slower initial learning rate with gradual increase
+            learning_rate = learning_rate * (1.0 + 0.005 * epoch)
+            learning_rate = min(learning_rate, 0.2)  # Cap at 0.2         
+
+            # Calculate decaying temperature
+            current_temperature = max(
+                temperature * (1.0 - epoch / (epochs * 0.8)),  # Decay over 80% of training
+                min_temperature
+            )
+
+            # Set the temperature for this epoch
+            ca.set_temperature(current_temperature)
             # Call the train_epoch method (to be implemented in Rust)
-            soft_loss, hard_loss = ca.train_epoch(configs, targets, learning_rate)                      
+            soft_loss, hard_loss = ca.train_epoch(configs, targets, learning_rate, epoch)                      
             
             # Update loss tracker
             loss_tracker.update(epoch, soft_loss, hard_loss)
@@ -237,9 +251,9 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.25, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=16, help='Batch size')
+    parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
     parser.add_argument('--tmp', type=float, default=0.05, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
