@@ -135,62 +135,80 @@ impl LogicGate {
             1.0,            // TRUE
         ];
         
-        // Compute gradients for each operation
-    let mut gradients = vec![0.0; 16];
-    for i in 0..16 {
-        gradients[i] = gradient * ops[i];
-    }
-    
-    // Apply softmax gradient update with temperature
-    let temperature = temperature; // Adjust this parameter
-    let mut exp_values = vec![0.0; 16];
-    let mut sum_exp = 0.0;
-    
-    // Original probabilities with temperature
-    for i in 0..16 {
-        exp_values[i] = (self.probability[i] / temperature).exp();
-        sum_exp += exp_values[i];
-    }
-    
-    // Update with softmax derivative
-    for i in 0..16 {
-        let softmax_i = exp_values[i] / sum_exp;
-        let mut softmax_grad = 0.0;
+        // Compute gate-specific gradients
+        let mut gradients = vec![0.0; 16];
+        for i in 0..16 {
+            // Apply noise to encourage exploration
+            let noise_factor = 0.001;
+            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor;
+            
+            // Input-specific gradient - this creates differentiation between gates
+            let gate_specific_grad = gradient * (ops[i] - self.compute_soft(a, b));
+            
+            // Store the gradient with some noise for exploration
+            gradients[i] = gate_specific_grad + noise;
+        }
         
-        for j in 0..16 {
-            if i == j {
-                softmax_grad += softmax_i * (1.0 - softmax_i) * gradients[j];
+        // Apply softmax with temperature
+        let mut exp_values = vec![0.0; 16];
+        let mut sum_exp = 0.0;
+        
+        for i in 0..16 {
+            exp_values[i] = (self.probability[i] / temperature).exp();
+            sum_exp += exp_values[i];
+        }
+        
+        // Apply gradient update with momentum
+        // TODO later because need memory of previous gradient
+        let _momentum = 0.9; // Add momentum for more stable updates
+        let mut updated_probs = vec![0.0; 16];
+        
+        for i in 0..16 {
+            let softmax_i = exp_values[i] / sum_exp;
+            let mut softmax_grad = 0.0;
+            
+            // Calculate softmax gradient
+            for j in 0..16 {
+                if i == j {
+                    softmax_grad += softmax_i * (1.0 - softmax_i) * gradients[j];
+                } else {
+                    softmax_grad += -softmax_i * (exp_values[j] / sum_exp) * gradients[j];
+                }
+            }
+            
+            // Apply momentum and gradient
+            let update = learning_rate * softmax_grad;
+            
+            // Apply L2 regularization differently for pass-through gates
+            if i != 3 && i != 5 {  // Not A or B
+                updated_probs[i] = self.probability[i] + update - learning_rate * l2_strength * self.probability[i];
             } else {
-                softmax_grad += -softmax_i * (exp_values[j] / sum_exp) * gradients[j];
+                updated_probs[i] = self.probability[i] + update; // No regularization for pass-through
             }
         }
         
-        self.probability[i] += learning_rate * softmax_grad;
-
-        // Add L2 regularization here
-        let l2_strength = l2_strength;
-        // Exclude pass-through gates (A and B)
-        if i != 3 && i != 5 {
-            self.probability[i] -= learning_rate * l2_strength * self.probability[i];
-}
-
-    }
-    
-    // Re-normalize with smoothing
-    let epsilon = 1e-6;
-    let mut sum = 0.0;
-    for i in 0..16 {
-        self.probability[i] = self.probability[i].max(epsilon);
-        sum += self.probability[i];
-    }
-    
-    for i in 0..16 {
-        self.probability[i] /= sum;
-    }
+        // Ensure minimum probability and normalize
+        let epsilon = 1e-6;
+        let mut sum = 0.0;
+        
+        for i in 0..16 {
+            self.probability[i] = updated_probs[i].max(epsilon);
+            sum += self.probability[i];
+        }
+        
+        for i in 0..16 {
+            self.probability[i] /= sum;
+        }
         
         // Set the most probable operation
+        self.update_current_op();
+    }
+    
+    // Move the operation update to a separate function
+    fn update_current_op(&mut self) {
         let mut max_idx = 0;
         let mut max_prob = self.probability[0];
+        
         for i in 1..16 {
             if self.probability[i] > max_prob {
                 max_prob = self.probability[i];
