@@ -6,6 +6,8 @@ use rand::{prelude::*, rng};
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 use numpy::PyReadonlyArray3;
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
 
 
 // Logic gate operations as per the paper
@@ -272,7 +274,7 @@ impl LogicGate {
     self.update_probabilities(output_grad, learning_rate * 0.1, a, b);
     
     (grad_a, grad_b)
-    
+
     }
 
 }
@@ -604,9 +606,7 @@ impl DiffLogicCA {
     
     // Train for a single epoch and return soft and hard loss values
 fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32) -> (f32, f32) {
-    use rayon::prelude::*;
-    use std::sync::{Arc, Mutex};
-    
+       
     // Clone the immutable data we need from self
     let width = self.width;
     let height = self.height;
@@ -615,9 +615,13 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
     let n_samples = initial_states.shape()[0];
     
     // Process in smaller batches
-    let batch_size = 64;
+    let batch_size = 32;
     let num_batches = (n_samples + batch_size - 1) / batch_size;
     
+    // Add adaptive learning rate 
+    let base_learning_rate = learning_rate;
+    let min_learning_rate = base_learning_rate * 0.01;
+
     // Create thread-safe shared state for the model
     let perception_circuits = Arc::new(Mutex::new(&mut self.perception_circuits));
     let update_circuit = Arc::new(Mutex::new(&mut self.update_circuit));
@@ -630,6 +634,10 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
             let start_idx = batch_idx * batch_size;
             let end_idx = std::cmp::min(start_idx + batch_size, n_samples);
             
+            // Calculate batch-specific learning rate
+            let adjusted_learning_rate = base_learning_rate * (1.0 / (1.0 + 0.01 * batch_idx as f32));
+            let adjusted_learning_rate = adjusted_learning_rate.max(min_learning_rate);
+
             let mut batch_soft_loss = 0.0;
             let mut batch_hard_loss = 0.0;
             
@@ -759,10 +767,21 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                             current_state.push(soft_state[[h, w, s]]);
                         }
                         update_inputs.extend_from_slice(&current_state);
+
+                        // Add batch normalization here
+                        let batch_mean = cell_grads.iter().sum::<f32>() / cell_grads.len() as f32;
+                        let batch_var = cell_grads.iter()
+                            .map(|&g| (g - batch_mean).powi(2))
+                            .sum::<f32>() / cell_grads.len() as f32;
+                        let epsilon = 1e-5;
+                        let mut normalized_grads = Vec::with_capacity(cell_grads.len());
+                        for &g in &cell_grads {
+                            normalized_grads.push((g - batch_mean) / (batch_var + epsilon).sqrt());
+                        }
                         
                         // Backpropagate through update circuit
                         let mut update_lock = update_circuit.lock().unwrap();
-                        let perception_grads = update_lock.backward(&update_inputs, &cell_grads, learning_rate);
+                        let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate);
                         
                         // Prepare perception gradients
                         let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
@@ -773,7 +792,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         // Update each circuit
                         let mut perception_lock = perception_circuits.lock().unwrap();
                         for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
-                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], learning_rate);
+                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], adjusted_learning_rate);
                         }
                     }
                 }
