@@ -104,7 +104,7 @@ impl LogicGate {
     }
     
     // Update the gate probabilities during training
-    pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32) {
+    pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
         let ops = [
             0.0,            // FALSE
             a * b,          // AND
@@ -131,7 +131,7 @@ impl LogicGate {
     }
     
     // Apply softmax gradient update with temperature
-    let temperature = 0.1; // Adjust this parameter
+    let temperature = temperature; // Adjust this parameter
     let mut exp_values = vec![0.0; 16];
     let mut sum_exp = 0.0;
     
@@ -157,7 +157,7 @@ impl LogicGate {
         self.probability[i] += learning_rate * softmax_grad;
 
         // Add L2 regularization here
-        let l2_strength = 0.001;
+        let l2_strength = l2_strength;
         // Exclude pass-through gates (A and B)
         if i != 3 && i != 5 {
             self.probability[i] -= learning_rate * l2_strength * self.probability[i];
@@ -217,7 +217,7 @@ impl LogicGate {
     }
 
     // Calculate gradients for input values based on output gradient
-    pub fn backward(&mut self, a: f32, b: f32, output_grad: f32, learning_rate: f32) -> (f32, f32) {
+    pub fn backward(&mut self, a: f32, b: f32, output_grad: f32, learning_rate: f32, l2_strength: f32, temperature: f32) -> (f32, f32) {
         // Output gradients for inputs a and b
         let mut grad_a = 0.0;
         let mut grad_b = 0.0;
@@ -287,7 +287,7 @@ impl LogicGate {
     grad_b = grad_b.max(-clip_value).min(clip_value);
     
     // Update probabilities with smaller step size for stability
-    self.update_probabilities(output_grad, learning_rate * 0.1, a, b);
+    self.update_probabilities(output_grad, learning_rate * 0.1, a, b, l2_strength, temperature);
     
     (grad_a, grad_b)
 
@@ -337,7 +337,7 @@ impl GateLayer {
         outputs
     }
     
-    pub fn backward(&mut self, inputs: &[f32], output_grads: &[f32], learning_rate: f32) -> Vec<f32> {
+    pub fn backward(&mut self, inputs: &[f32], output_grads: &[f32], learning_rate: f32, l2_strength: f32, temperature: f32) -> Vec<f32> {
         let mut input_grads = vec![0.0; inputs.len()];
         
         // Process each gate
@@ -348,7 +348,7 @@ impl GateLayer {
             let b = inputs[b_idx];
             
             // Compute gradients for this gate
-            let (grad_a, grad_b) = gate.backward(a, b, output_grads[i], learning_rate);
+            let (grad_a, grad_b) = gate.backward(a, b, output_grads[i], learning_rate, l2_strength, temperature);
             
             // Accumulate gradients for inputs
             input_grads[a_idx] += grad_a;
@@ -403,13 +403,13 @@ impl Circuit {
         (all_outputs, current.clone())
     }
     
-    pub fn backward(&mut self, all_inputs: &[Vec<f32>], output_grads: &[f32], learning_rate: f32) -> Vec<f32> {
+    pub fn backward(&mut self, all_inputs: &[Vec<f32>], output_grads: &[f32], learning_rate: f32, l2_strength: f32, temperature: f32) -> Vec<f32> {
         let mut gradients = output_grads.to_vec();
         
         // Backpropagate through layers in reverse order
         for i in (0..self.layers.len()).rev() {
             let layer_inputs = &all_inputs[i];
-            gradients = self.layers[i].backward(layer_inputs, &gradients, learning_rate);
+            gradients = self.layers[i].backward(layer_inputs, &gradients, learning_rate, l2_strength, temperature);
         }
         
         gradients
@@ -442,12 +442,12 @@ impl PerceptionCircuit {
         outputs.1[0] // Return the final output value
     }
 
-    pub fn backward(&mut self, inputs: &[f32], output_grad: f32, learning_rate: f32) -> Vec<f32> {
+    pub fn backward(&mut self, inputs: &[f32], output_grad: f32, learning_rate: f32, l2_strength: f32, temperature: f32) -> Vec<f32> {
         // Perform forward pass to collect intermediate outputs
         let (all_inputs, _) = self.circuit.forward_soft(inputs);
         
         // Backward pass with single output gradient
-        self.circuit.backward(&all_inputs, &[output_grad], learning_rate)
+        self.circuit.backward(&all_inputs, &[output_grad], learning_rate, l2_strength, temperature)
     }
 
 }
@@ -493,12 +493,12 @@ impl UpdateCircuit {
         outputs
     }
 
-    pub fn backward(&mut self, inputs: &[f32], output_grads: &[f32], learning_rate: f32) -> Vec<f32> {
+    pub fn backward(&mut self, inputs: &[f32], output_grads: &[f32], learning_rate: f32, l2_strength: f32, temperature: f32) -> Vec<f32> {
         // Perform forward pass to collect intermediate outputs
         let (all_inputs, _) = self.circuit.forward_soft(inputs);
         
         // Backward pass
-        self.circuit.backward(&all_inputs, output_grads, learning_rate)
+        self.circuit.backward(&all_inputs, output_grads, learning_rate, l2_strength, temperature)
     }
 
 }
@@ -511,6 +511,9 @@ pub struct DiffLogicCA {
     grid: Array3<bool>,
     perception_circuits: Vec<PerceptionCircuit>,
     update_circuit: UpdateCircuit,
+    batch_size: usize,
+    l2_strength: f32,
+    temperature: f32,
 }
 
 impl DiffLogicCA {
@@ -536,9 +539,25 @@ impl DiffLogicCA {
             grid,
             perception_circuits,
             update_circuit,
+            batch_size: 64,
+            l2_strength: 0.001,
+            temperature: 0.1,
         }
     }
     
+    // Add setter methods
+    pub fn set_batch_size(&mut self, batch_size: usize) {
+        self.batch_size = batch_size;
+    }
+    
+    pub fn set_l2_strength(&mut self, l2_strength: f32) {
+        self.l2_strength = l2_strength;
+    }
+    
+    pub fn set_temperature(&mut self, temperature: f32) {
+        self.temperature = temperature;
+    }
+
     // Get the Moore neighborhood (8 surrounding cells + center) for a cell
     fn get_neighborhood(&self, row: usize, col: usize) -> Vec<bool> {
         let mut neighborhood = Vec::with_capacity(9 * self.state_size);
@@ -631,7 +650,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
     let n_samples = initial_states.shape()[0];
     
     // Process in smaller batches
-    let batch_size = 32;
+    let batch_size = self.batch_size;
     let num_batches = (n_samples + batch_size - 1) / batch_size;
     
     // Add adaptive learning rate 
@@ -810,7 +829,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         
                         // Backpropagate through update circuit
                         let mut update_lock = update_circuit.lock().unwrap();
-                        let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate);
+                        let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate, self.l2_strength, self.temperature);
                         
                         // Prepare perception gradients
                         let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
@@ -821,7 +840,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         // Update each circuit
                         let mut perception_lock = perception_circuits.lock().unwrap();
                         for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
-                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], adjusted_learning_rate);
+                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], adjusted_learning_rate, self.l2_strength, self.temperature);
                         }
                     }
                 }
@@ -1019,6 +1038,19 @@ impl PyDiffLogicCA {
         let (soft_loss, hard_loss) = self.model.train_epoch_internal(&initial_array, &target_array, learning_rate);
         Ok((soft_loss, hard_loss))
     }
+
+    fn set_batch_size(&mut self, batch_size: usize) {
+        self.model.set_batch_size(batch_size);
+    }
+    
+    fn set_l2_strength(&mut self, l2_strength: f32) {
+        self.model.set_l2_strength(l2_strength);
+    }
+    
+    fn set_temperature(&mut self, temperature: f32) {
+        self.model.set_temperature(temperature);
+    }
+
 }
 
 #[pyfunction]
