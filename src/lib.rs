@@ -42,13 +42,13 @@ impl LogicGate {
     pub fn new(inputs: (usize, usize)) -> Self {
 
         // Start with a base probability for all gates
-        let base_prob = 0.04;
+        let base_prob = 0.06;
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
         // Double their probability compared to other gates
-        probability[3] = 0.12; // Bias toward A (LogicOp::A)
-        probability[5] = 0.12; // Bias toward B (LogicOp::B)
+        probability[3] = 0.07; // Bias toward A (LogicOp::A)
+        probability[5] = 0.07; // Bias toward B (LogicOp::B)
         
         // Ensure probabilities sum to 1.0
         let sum: f32 = probability.iter().sum();
@@ -116,6 +116,20 @@ impl LogicGate {
     
     // Update the gate probabilities during training
     pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
+        
+        // detect if we're stuck
+        let is_dominated = self.probability.iter().any(|&p| p > 0.4);
+        let needs_reset = is_dominated && rand::random::<f32>() < 0.1;
+
+        if needs_reset {
+            // Reset this gate's probabilities
+            self.probability = vec![0.06; 16];
+            self.probability[3] = 0.07;
+            self.probability[5] = 0.07;
+            // Skip normal update
+            return;
+        }
+        
         // Calculate the current output using weighted probabilities
         let current_output = self.compute_soft(a, b);
         
@@ -129,9 +143,15 @@ impl LogicGate {
         
         // Calculate operation-specific gradients based on how each would improve the output
         let mut op_gradients = vec![0.0; 16];
+         // Add exploration noise
+        let noise_factor = 0.05;
+
         for i in 0..16 {
+            
+            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor;
+
             // Direct measure of how this operation would improve the output
-            op_gradients[i] = -gradient * (ops[i] - current_output);
+            op_gradients[i] = -gradient * (ops[i] - current_output) + noise;
         }
         
         // Apply softmax with higher temperature for exploration
@@ -286,7 +306,7 @@ impl LogicGate {
     grad_b = grad_b.max(-clip_value).min(clip_value);
     
     // Update probabilities with smaller step size for stability
-    self.update_probabilities(output_grad, learning_rate * 0.1, a, b, l2_strength, temperature);
+    self.update_probabilities(output_grad, learning_rate, a, b, l2_strength, temperature);
     
     (grad_a, grad_b)
 

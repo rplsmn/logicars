@@ -238,9 +238,9 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
     parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=1, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=0.75, help='Temperature')
+    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=16, help='Batch size')
+    parser.add_argument('--tmp', type=float, default=0.9, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.0001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
