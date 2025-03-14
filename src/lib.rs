@@ -39,9 +39,9 @@ pub struct LogicGate {
 impl LogicGate {
     pub fn new(inputs: (usize, usize)) -> Self {
         // Initialize with a bias toward pass-through gates (A or B)
-        let mut probability = vec![0.01; 16];
-        probability[3] = 0.4; // Bias toward A
-        probability[5] = 0.4; // Bias toward B
+        let mut probability = vec![0.05; 16];
+        probability[3] = 0.1; // Bias toward A
+        probability[5] = 0.1; // Bias toward B
         
         LogicGate {
             op: LogicOp::A, // Default operation

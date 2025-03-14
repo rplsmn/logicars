@@ -156,7 +156,7 @@ def evaluate_model(ca, test_configs, test_targets, n_samples=10, visualize=False
     print(f"Model accuracy: {accuracy:.2f}% ({correct}/{total})")
     return accuracy
 
-def train_gol_model(epochs=20, learning_rate=0.001, visualize=False, save_loss_plot=True):
+def train_gol_model(epochs=200, learning_rate=0.001, visualize=False, save_loss_plot=True):
     """Train a DiffLogic CA to learn Game of Life rules"""
     print("Generating training data...")
     configs, targets = generate_gol_training_data()
@@ -233,7 +233,7 @@ def train_gol_model(epochs=20, learning_rate=0.001, visualize=False, save_loss_p
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
