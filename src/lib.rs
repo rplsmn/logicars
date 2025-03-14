@@ -123,22 +123,49 @@ impl LogicGate {
         ];
         
         // Compute gradients for each operation
-        let mut gradients = vec![0.0; 16];
-        for i in 0..16 {
-            gradients[i] = gradient * ops[i];
+    let mut gradients = vec![0.0; 16];
+    for i in 0..16 {
+        gradients[i] = gradient * ops[i];
+    }
+    
+    // Apply softmax gradient update with temperature
+    let temperature = 0.1; // Adjust this parameter
+    let mut exp_values = vec![0.0; 16];
+    let mut sum_exp = 0.0;
+    
+    // Original probabilities with temperature
+    for i in 0..16 {
+        exp_values[i] = (self.probability[i] / temperature).exp();
+        sum_exp += exp_values[i];
+    }
+    
+    // Update with softmax derivative
+    for i in 0..16 {
+        let softmax_i = exp_values[i] / sum_exp;
+        let mut softmax_grad = 0.0;
+        
+        for j in 0..16 {
+            if i == j {
+                softmax_grad += softmax_i * (1.0 - softmax_i) * gradients[j];
+            } else {
+                softmax_grad += -softmax_i * (exp_values[j] / sum_exp) * gradients[j];
+            }
         }
         
-        // Update probabilities with softmax gradient
-        let mut sum = 0.0;
-        for i in 0..16 {
-            self.probability[i] += learning_rate * gradients[i];
-            sum += self.probability[i];
-        }
-        
-        // Re-normalize
-        for i in 0..16 {
-            self.probability[i] /= sum;
-        }
+        self.probability[i] += learning_rate * softmax_grad;
+    }
+    
+    // Re-normalize with smoothing
+    let epsilon = 1e-6;
+    let mut sum = 0.0;
+    for i in 0..16 {
+        self.probability[i] = self.probability[i].max(epsilon);
+        sum += self.probability[i];
+    }
+    
+    for i in 0..16 {
+        self.probability[i] /= sum;
+    }
         
         // Set the most probable operation
         let mut max_idx = 0;
