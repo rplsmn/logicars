@@ -119,13 +119,13 @@ impl LogicGate {
         
         // detect if we're stuck
         let is_dominated = self.probability.iter().any(|&p| p > 0.4);
-        let needs_reset = is_dominated && rand::random::<f32>() < 0.1;
+        let needs_reset = is_dominated && rand::random::<f32>() < 0.05;
 
         if needs_reset {
             // Reset this gate's probabilities
             self.probability = vec![0.06; 16];
-            self.probability[3] = 0.07;
-            self.probability[5] = 0.07;
+            // self.probability[3] = 0.07;
+            // self.probability[5] = 0.07;
             // Skip normal update
             return;
         }
@@ -144,7 +144,7 @@ impl LogicGate {
         // Calculate operation-specific gradients based on how each would improve the output
         let mut op_gradients = vec![0.0; 16];
          // Add exploration noise
-        let noise_factor = 0.05;
+        let noise_factor = 0.1;
 
         for i in 0..16 {
             
@@ -160,14 +160,14 @@ impl LogicGate {
         
         // First, find max for numerical stability
         for i in 0..16 {
-            max_prob = max_prob.max(self.probability[i] / temperature + op_gradients[i]);
+            max_prob = max_prob.max(self.probability[i].ln() / temperature + op_gradients[i]);
         }
         
         // Calculate exp values with subtracted max
         let mut sum_exp = 0.0;
         for i in 0..16 {
             // Add gradient directly to log probabilities (before exp)
-            let log_prob = self.probability[i] / temperature + learning_rate * op_gradients[i];
+            let log_prob = self.probability[i].ln() / temperature + learning_rate * op_gradients[i];
             probs[i] = (log_prob - max_prob).exp();
             sum_exp += probs[i];
         }
@@ -767,13 +767,14 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 }
                 
                 // if batch_idx % 10 == 0 && i == start_idx {
-                //     // Sample a gate from first perception circuit
                 //     let perception_lock = perception_circuits.lock().unwrap();
                 //     if let Some(first_circuit) = perception_lock.get(0) {
                 //         if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
                 //             if let Some(first_gate) = first_layer.gates.get(0) {
-                //                 let gate_stats = first_gate.get_gate_distribution_stats();
-                //                 println!("Gate distribution (batch {}, sample {}): {:?}", batch_idx, i, gate_stats);
+                //                 println!("Gate distribution: {:?}", first_gate.probability);
+                //                 // Check if any probability is dominating
+                //                 let max_prob: f32 = first_gate.probability.iter().fold(0.0, |a, &b| a.max(b));
+                //                 println!("Max probability: {}", max_prob);
                 //             }
                 //         }
                 //     }
