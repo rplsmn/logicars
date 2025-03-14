@@ -9,9 +9,85 @@ use numpy::PyReadonlyArray3;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 
+// Diagnostics
+
+fn analyze_gate_distributions(circuits: &[PerceptionCircuit], epoch: usize) {
+    if epoch % 10 != 0 {
+        return;
+    }
+    
+    // Count dominant gate types across all circuits
+    let mut gate_type_counts = [0; 16];
+    let mut total_gates = 0;
+    let mut max_probability_sum = 0.0;
+    let mut max_probability_count = 0;
+    
+    // Sample one circuit to show detailed distribution
+    if let Some(first_circuit) = circuits.get(0) {
+        if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
+            if let Some(first_gate) = first_layer.gates.get(0) {
+                println!("\nEpoch {}: Sample gate distribution:", epoch);
+                println!("{:?}", first_gate.probability);
+                
+                // Find max probability
+                let max_prob: f32 = first_gate.probability.iter().fold(0.0, |a, &b| a.max(b));
+                println!("Max probability in sample: {:.4}", max_prob);
+            }
+        }
+    }
+    
+    // Calculate statistics across all gates
+    for circuit in circuits {
+        for layer in &circuit.circuit.layers {
+            for gate in &layer.gates {
+                let max_idx = gate.probability.iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(0);
+                
+                gate_type_counts[max_idx] += 1;
+                total_gates += 1;
+                
+                let max_prob: f32 = gate.probability.iter().fold(0.0, |a, &b| a.max(b));
+                max_probability_sum += max_prob;
+                if max_prob > 0.5 {
+                    max_probability_count += 1;
+                }
+            }
+        }
+    }
+    
+    // Print summary statistics
+    println!("Gate distribution across all circuits:");
+    println!("FALSE: {:.1}%, AND: {:.1}%, A_AND_NOT_B: {:.1}%, A: {:.1}%, NOT_A_AND_B: {:.1}%, B: {:.1}%, XOR: {:.1}%, OR: {:.1}%", 
+        gate_type_counts[0] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[1] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[2] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[3] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[4] as f32 / total_gates as f32 * 100.0, 
+        gate_type_counts[5] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[6] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[7] as f32 / total_gates as f32 * 100.0);
+    
+    println!("NOR: {:.1}%, XNOR: {:.1}%, NOT_B: {:.1}%, A_OR_NOT_B: {:.1}%, NOT_A: {:.1}%, NOT_A_OR_B: {:.1}%, NAND: {:.1}%, TRUE: {:.1}%",
+        gate_type_counts[8] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[9] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[10] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[11] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[12] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[13] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[14] as f32 / total_gates as f32 * 100.0,
+        gate_type_counts[15] as f32 / total_gates as f32 * 100.0);
+    
+    println!("Avg max probability: {:.3}, Gates with p>0.5: {:.1}%", 
+        max_probability_sum / total_gates as f32,
+        max_probability_count as f32 / total_gates as f32 * 100.0);
+}
 
 // Logic gate operations as per the paper
 #[allow(non_camel_case_types)]
+#[derive(Clone)]
 pub enum LogicOp {
     FALSE,      // 0
     AND,        // a * b
@@ -32,6 +108,7 @@ pub enum LogicOp {
 }
 
 // Represent a logic gate with its operation and inputs
+#[derive(Clone)]
 pub struct LogicGate {
     op: LogicOp,
     inputs: (usize, usize), // Indices of input gates or values
@@ -315,6 +392,7 @@ impl LogicGate {
 }
 
 // A layer of logic gates in the circuit
+#[derive(Clone)]
 pub struct GateLayer {
     gates: Vec<LogicGate>,
 }
@@ -380,6 +458,7 @@ impl GateLayer {
 }
 
 // Circuit composed of multiple layers of gates
+#[derive(Clone)]
 pub struct Circuit {
     layers: Vec<GateLayer>,
     layer_sizes: Vec<usize>,
@@ -436,6 +515,7 @@ impl Circuit {
 }
 
 // Perception circuit that processes neighborhood states
+#[derive(Clone)]
 pub struct PerceptionCircuit {
     circuit: Circuit,
 }
@@ -649,7 +729,7 @@ impl DiffLogicCA {
         println!("Starting training for {} epochs with {} samples", epochs, n_samples);
         
         for epoch in 0..epochs {
-            let (soft_loss, hard_loss) = self.train_epoch_internal(initial_states, target_states, learning_rate);
+            let (soft_loss, hard_loss) = self.train_epoch_internal(initial_states, target_states, learning_rate, epoch);
             
             // Print progress
             println!("Epoch {}: Soft Loss = {}, Hard Loss = {}", epoch, soft_loss, hard_loss);
@@ -659,7 +739,7 @@ impl DiffLogicCA {
     }
     
     // Train for a single epoch and return soft and hard loss values
-fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32) -> (f32, f32) {
+fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states: &Array4<bool>, learning_rate: f32, epoch: usize) -> (f32, f32) {
        
     // Clone the immutable data we need from self
     let width = self.width;
@@ -765,20 +845,16 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         }
                     }
                 }
-                
-                // if batch_idx % 10 == 0 && i == start_idx {
-                //     let perception_lock = perception_circuits.lock().unwrap();
-                //     if let Some(first_circuit) = perception_lock.get(0) {
-                //         if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
-                //             if let Some(first_gate) = first_layer.gates.get(0) {
-                //                 println!("Gate distribution: {:?}", first_gate.probability);
-                //                 // Check if any probability is dominating
-                //                 let max_prob: f32 = first_gate.probability.iter().fold(0.0, |a, &b| a.max(b));
-                //                 println!("Max probability: {}", max_prob);
-                //             }
-                //         }
-                //     }
-                // }
+                                
+                if batch_idx == 0 && i == start_idx {
+                    // Create a temporary clone for analysis
+                    let circuits_clone = {
+                        let perception_lock = perception_circuits.lock().unwrap();
+                        perception_lock.clone()
+                    };
+                    
+                    analyze_gate_distributions(&circuits_clone, epoch);
+                }
 
                 // Compute soft loss
                 let mut sample_soft_loss = 0.0;
@@ -1052,10 +1128,10 @@ impl PyDiffLogicCA {
     }
     
     fn train_epoch(&mut self, initial_states: PyReadonlyArray4<bool>, target_states: PyReadonlyArray4<bool>,
-        learning_rate: f32) -> PyResult<(f32, f32)> {
+        learning_rate: f32, epoch: usize) -> PyResult<(f32, f32)> {
         let initial_array = initial_states.as_array().to_owned();
         let target_array = target_states.as_array().to_owned();
-        let (soft_loss, hard_loss) = self.model.train_epoch_internal(&initial_array, &target_array, learning_rate);
+        let (soft_loss, hard_loss) = self.model.train_epoch_internal(&initial_array, &target_array, learning_rate, epoch);
         Ok((soft_loss, hard_loss))
     }
 
