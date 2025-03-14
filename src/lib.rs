@@ -119,13 +119,12 @@ impl LogicGate {
     pub fn new(inputs: (usize, usize)) -> Self {
 
         // Start with a base probability for all gates
-        let base_prob = 0.06;
+        let base_prob = 0.055;
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
-        // Double their probability compared to other gates
-        probability[3] = 0.07; // Bias toward A (LogicOp::A)
-        probability[5] = 0.07; // Bias toward B (LogicOp::B)
+        probability[3] = 0.11; // Bias toward A (LogicOp::A)
+        probability[5] = 0.11; // Bias toward B (LogicOp::B)
         
         // Ensure probabilities sum to 1.0
         let sum: f32 = probability.iter().sum();
@@ -200,9 +199,15 @@ impl LogicGate {
 
         if needs_reset {
             // Reset this gate's probabilities
-            self.probability = vec![0.06; 16];
-            // self.probability[3] = 0.07;
-            // self.probability[5] = 0.07;
+            self.probability = vec![0.055; 16];
+            self.probability[3] = 0.11;
+            self.probability[5] = 0.11;
+
+            // Ensure probabilities sum to 1.0
+            let sum: f32 = self.probability.iter().sum();
+            for p in &mut self.probability {
+                *p /= sum;
+            }
             // Skip normal update
             return;
         }
