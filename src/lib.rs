@@ -263,10 +263,16 @@ impl LogicGate {
         
         // TRUE: constant 1, no gradient
         
-        // Update operation probabilities
-        self.update_probabilities(output_grad, learning_rate, a, b);
-        
-        (grad_a, grad_b)
+        // Add gradient clipping to prevent exploding gradients
+    let clip_value = 5.0;
+    grad_a = grad_a.max(-clip_value).min(clip_value);
+    grad_b = grad_b.max(-clip_value).min(clip_value);
+    
+    // Update probabilities with smaller step size for stability
+    self.update_probabilities(output_grad, learning_rate * 0.1, a, b);
+    
+    (grad_a, grad_b)
+    
     }
 
 }
