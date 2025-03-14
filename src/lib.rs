@@ -116,95 +116,65 @@ impl LogicGate {
     
     // Update the gate probabilities during training
     pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
+        // Calculate the current output using weighted probabilities
+        let current_output = self.compute_soft(a, b);
+        
+        // Calculate individual operation outputs
         let ops = [
-            0.0,            // FALSE
-            a * b,          // AND
-            a * (1.0 - b),  // A_AND_NOT_B
-            a,              // A
-            (1.0 - a) * b,  // NOT_A_AND_B
-            b,              // B
-            a + b - 2.0*a*b, // XOR
-            a + b - a*b,    // OR
-            1.0 - (a + b - a*b), // NOR
-            1.0 - (a + b - 2.0*a*b), // XNOR
-            1.0 - b,        // NOT_B
-            1.0 - b + a*b,  // A_OR_NOT_B
-            1.0 - a,        // NOT_A
-            1.0 - a + a*b,  // NOT_A_OR_B
-            1.0 - a*b,      // NAND
-            1.0,            // TRUE
+            0.0, a * b, a * (1.0 - b), a, (1.0 - a) * b, b, 
+            a + b - 2.0*a*b, a + b - a*b, 1.0 - (a + b - a*b), 
+            1.0 - (a + b - 2.0*a*b), 1.0 - b, 1.0 - b + a*b, 
+            1.0 - a, 1.0 - a + a*b, 1.0 - a*b, 1.0
         ];
         
-        // Compute gate-specific gradients
-        let mut gradients = vec![0.0; 16];
+        // Calculate operation-specific gradients based on how each would improve the output
+        let mut op_gradients = vec![0.0; 16];
         for i in 0..16 {
-            // Apply noise to encourage exploration
-            let noise_factor = 0.001;
-            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor;
-            
-            // Input-specific gradient - this creates differentiation between gates
-            let gate_specific_grad = gradient * (ops[i] - self.compute_soft(a, b));
-            
-            // Store the gradient with some noise for exploration
-            gradients[i] = gate_specific_grad + noise;
+            // Direct measure of how this operation would improve the output
+            op_gradients[i] = -gradient * (ops[i] - current_output);
         }
         
-        // Apply softmax with temperature
-        let mut exp_values = vec![0.0; 16];
+        // Apply softmax with higher temperature for exploration
+        let mut probs = vec![0.0; 16];
+        let mut max_prob = f32::MIN;
+        
+        // First, find max for numerical stability
+        for i in 0..16 {
+            max_prob = max_prob.max(self.probability[i] / temperature + op_gradients[i]);
+        }
+        
+        // Calculate exp values with subtracted max
         let mut sum_exp = 0.0;
-        
         for i in 0..16 {
-            exp_values[i] = (self.probability[i] / temperature).exp();
-            sum_exp += exp_values[i];
+            // Add gradient directly to log probabilities (before exp)
+            let log_prob = self.probability[i] / temperature + learning_rate * op_gradients[i];
+            probs[i] = (log_prob - max_prob).exp();
+            sum_exp += probs[i];
         }
         
-        // Apply gradient update with momentum
-        // TODO later because need memory of previous gradient
-        let _momentum = 0.9; // Add momentum for more stable updates
-        let mut updated_probs = vec![0.0; 16];
-        
+        // Normalize and apply minimal L2 regularization
         for i in 0..16 {
-            let softmax_i = exp_values[i] / sum_exp;
-            let mut softmax_grad = 0.0;
+            probs[i] /= sum_exp;
             
-            // Calculate softmax gradient
-            for j in 0..16 {
-                if i == j {
-                    softmax_grad += softmax_i * (1.0 - softmax_i) * gradients[j];
-                } else {
-                    softmax_grad += -softmax_i * (exp_values[j] / sum_exp) * gradients[j];
-                }
+            // Apply very mild L2 only to non-pass-through gates
+            if (i != 3 && i != 5) && probs[i] > 0.05 {
+                probs[i] -= learning_rate * l2_strength * probs[i];
             }
             
-            // Apply momentum and gradient
-            let update = learning_rate * softmax_grad;
-            
-            // Apply L2 regularization differently for pass-through gates
-            if i != 3 && i != 5 {  // Not A or B
-                updated_probs[i] = self.probability[i] + update - learning_rate * l2_strength * self.probability[i];
-            } else {
-                updated_probs[i] = self.probability[i] + update; // No regularization for pass-through
-            }
+            // Ensure minimum probability
+            probs[i] = probs[i].max(0.001);
         }
         
-        // Ensure minimum probability and normalize
-        let epsilon = 1e-6;
-        let mut sum = 0.0;
-        
+        // Renormalize
+        sum_exp = probs.iter().sum();
         for i in 0..16 {
-            self.probability[i] = updated_probs[i].max(epsilon);
-            sum += self.probability[i];
+            self.probability[i] = probs[i] / sum_exp;
         }
         
-        for i in 0..16 {
-            self.probability[i] /= sum;
-        }
-        
-        // Set the most probable operation
+        // Update the current operation
         self.update_current_op();
     }
     
-    // Move the operation update to a separate function
     fn update_current_op(&mut self) {
         let mut max_idx = 0;
         let mut max_prob = self.probability[0];
