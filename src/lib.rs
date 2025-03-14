@@ -155,6 +155,14 @@ impl LogicGate {
         }
         
         self.probability[i] += learning_rate * softmax_grad;
+
+        // Add L2 regularization here
+        let l2_strength = 0.001;
+        // Exclude pass-through gates (A and B)
+        if i != 3 && i != 5 {
+            self.probability[i] -= learning_rate * l2_strength * self.probability[i];
+}
+
     }
     
     // Re-normalize with smoothing
@@ -198,6 +206,14 @@ impl LogicGate {
             15 => LogicOp::TRUE,
             _ => unreachable!(),
         };
+    }
+
+    pub fn get_gate_distribution_stats(&self) -> [f32; 16] {
+        let mut stats = [0.0; 16];
+        for i in 0..16 {
+            stats[i] = self.probability[i];
+        }
+        stats
     }
 
     // Calculate gradients for input values based on output gradient
@@ -712,6 +728,19 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     }
                 }
                 
+                if batch_idx % 10 == 0 && i == start_idx {
+                    // Sample a gate from first perception circuit
+                    let perception_lock = perception_circuits.lock().unwrap();
+                    if let Some(first_circuit) = perception_lock.get(0) {
+                        if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
+                            if let Some(first_gate) = first_layer.gates.get(0) {
+                                let gate_stats = first_gate.get_gate_distribution_stats();
+                                println!("Gate distribution (batch {}, sample {}): {:?}", batch_idx, i, gate_stats);
+                            }
+                        }
+                    }
+                }
+
                 // Compute soft loss
                 let mut sample_soft_loss = 0.0;
                 let mut sample_hard_loss = 0.0;
