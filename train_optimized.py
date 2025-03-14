@@ -156,7 +156,7 @@ def evaluate_model(ca, test_configs, test_targets, n_samples=10, visualize=False
     print(f"Model accuracy: {accuracy:.2f}% ({correct}/{total})")
     return accuracy
 
-def train_gol_model(epochs=200, learning_rate=0.001, visualize=False, save_loss_plot=True):
+def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperature = 0.1, l2_strength = 0.001, visualize=False, save_loss_plot=True):
     """Train a DiffLogic CA to learn Game of Life rules"""
     print("Generating training data...")
     configs, targets = generate_gol_training_data()
@@ -167,6 +167,10 @@ def train_gol_model(epochs=200, learning_rate=0.001, visualize=False, save_loss_
     print("Creating DiffLogic CA model...")
     ca = logicars.PyDiffLogicCA(3, 3, 1, 16)
     
+    ca.set_batch_size(batch_size)
+    ca.set_temperature(temperature)
+    ca.set_l2_strength(l2_strength)
+
     # Initialize loss tracker
     loss_tracker = LossTracker()
     
@@ -233,8 +237,11 @@ def train_gol_model(epochs=200, learning_rate=0.001, visualize=False, save_loss_
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
+    parser.add_argument('--tmp', type=float, default=0.1, help='Temperature')
+    parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
     args = parser.parse_args()
@@ -242,6 +249,9 @@ if __name__ == "__main__":
     ca = train_gol_model(
         epochs=args.epochs, 
         learning_rate=args.lr, 
+        batch_size=args.batchsize,
+        temperature=args.tmp,
+        l2_strength=args.l2,
         visualize=args.visualize,
         save_loss_plot=args.save_plot
     )
