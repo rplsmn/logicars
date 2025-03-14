@@ -776,18 +776,18 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     }
                 }
                 
-                if batch_idx % 10 == 0 && i == start_idx {
-                    // Sample a gate from first perception circuit
-                    let perception_lock = perception_circuits.lock().unwrap();
-                    if let Some(first_circuit) = perception_lock.get(0) {
-                        if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
-                            if let Some(first_gate) = first_layer.gates.get(0) {
-                                let gate_stats = first_gate.get_gate_distribution_stats();
-                                println!("Gate distribution (batch {}, sample {}): {:?}", batch_idx, i, gate_stats);
-                            }
-                        }
-                    }
-                }
+                // if batch_idx % 10 == 0 && i == start_idx {
+                //     // Sample a gate from first perception circuit
+                //     let perception_lock = perception_circuits.lock().unwrap();
+                //     if let Some(first_circuit) = perception_lock.get(0) {
+                //         if let Some(first_layer) = first_circuit.circuit.layers.get(0) {
+                //             if let Some(first_gate) = first_layer.gates.get(0) {
+                //                 let gate_stats = first_gate.get_gate_distribution_stats();
+                //                 println!("Gate distribution (batch {}, sample {}): {:?}", batch_idx, i, gate_stats);
+                //             }
+                //         }
+                //     }
+                // }
 
                 // Compute soft loss
                 let mut sample_soft_loss = 0.0;
