@@ -250,11 +250,11 @@ impl LogicGate {
         // Calculate operation-specific gradients based on how each would improve the output
         let mut op_gradients = vec![0.0; 16];
          // Add exploration noise
-        let noise_factor = 0.1;
+        let noise_factor = 0.2;
 
         for i in 0..16 {
             
-            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor * gradient.abs(); // scale noise to gradient ?
+            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor; // scale noise to gradient ?
 
             let target_direction = -gradient; // Negative of loss gradient is direction toward target
             op_gradients[i] = target_direction * ops[i] + noise;
@@ -266,7 +266,7 @@ impl LogicGate {
         
         // First, find max for numerical stability
         for i in 0..16 {
-            max_prob = max_prob.max(self.probability[i].ln() / temperature + learning_rate + op_gradients[i]);
+            max_prob = max_prob.max(self.probability[i].ln() / temperature + learning_rate * op_gradients[i]);
         }
         
         // Calculate exp values with subtracted max
@@ -884,7 +884,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     analyze_gate_distributions(&circuits_clone, epoch);
                     if epoch % 10 == 0 {
                         println!("Current temp: {:?}", &self.temperature);
-                        println!("Current learning rate: {:?}", &learning_rate);
+                        println!("Current learning rate: {:?}", &adjusted_learning_rate);
                     }
                     
                 }
@@ -966,7 +966,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
 
                 // Prepare perception gradients
                 let mut perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
-                
+
                 // Add small noise to break zero gradient problem ?
                 for grad in &mut perception_circuit_grads {
                     if *grad == 0.0 {
@@ -974,7 +974,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     }
                 }
                 
-                if batch_idx == 0 && i == start_idx && epoch < 3 {
+                if batch_idx == 0 && i == start_idx && epoch % 10 == 0 {
                     println!("First few perception_grads: {:?}", &perception_circuit_grads);
                     println!("All zeros: {}", perception_circuit_grads.iter().all(|&x| x == 0.0));
                 }
