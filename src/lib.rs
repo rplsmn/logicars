@@ -123,9 +123,14 @@ impl LogicGate {
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
-        probability[3] = 0.11; // Bias toward A (LogicOp::A)
-        probability[5] = 0.11; // Bias toward B (LogicOp::B)
+        probability[3] = 0.08; // Bias toward A (LogicOp::A)
+        probability[5] = 0.08; // Bias toward B (LogicOp::B)
         
+        // Add small random noise to break symmetry
+        for p in &mut probability {
+            *p *= 0.95 + 0.1 * rand::random::<f32>();
+        }
+
         // Ensure probabilities sum to 1.0
         let sum: f32 = probability.iter().sum();
         for p in &mut probability {
@@ -194,14 +199,19 @@ impl LogicGate {
     pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
         
         // detect if we're stuck
-        let is_dominated = self.probability.iter().any(|&p| p > 0.9);
-        let needs_reset = is_dominated && rand::random::<f32>() < 0.01;
+        let is_dominated = self.probability.iter().any(|&p| p > 0.8);
+        let needs_reset = is_dominated && rand::random::<f32>() < 0.1;
 
         if needs_reset {
             // Reset this gate's probabilities
-            self.probability = vec![0.055; 16];
-            self.probability[3] = 0.11;
-            self.probability[5] = 0.11;
+            self.probability = vec![0.06; 16];
+            self.probability[3] = 0.08;
+            self.probability[5] = 0.08;
+
+            // Add small random noise to break symmetry
+            for p in &mut self.probability {
+                *p *= 0.95 + 0.1 * rand::random::<f32>();
+            }
 
             // Ensure probabilities sum to 1.0
             let sum: f32 = self.probability.iter().sum();
@@ -213,14 +223,26 @@ impl LogicGate {
         }
         
         // Calculate the current output using weighted probabilities
-        let current_output = self.compute_soft(a, b);
+        // let current_output = self.compute_soft(a, b);
         
         // Calculate individual operation outputs
         let ops = [
-            0.0, a * b, a * (1.0 - b), a, (1.0 - a) * b, b, 
-            a + b - 2.0*a*b, a + b - a*b, 1.0 - (a + b - a*b), 
-            1.0 - (a + b - 2.0*a*b), 1.0 - b, 1.0 - b + a*b, 
-            1.0 - a, 1.0 - a + a*b, 1.0 - a*b, 1.0
+            0.0,            // FALSE
+            a * b,          // AND
+            a * (1.0 - b),  // A_AND_NOT_B
+            a,              // A
+            (1.0 - a) * b,  // NOT_A_AND_B
+            b,              // B
+            a + b - 2.0*a*b, // XOR
+            a + b - a*b,    // OR
+            1.0 - (a + b - a*b), // NOR
+            1.0 - (a + b - 2.0*a*b), // XNOR
+            1.0 - b,        // NOT_B
+            1.0 - b + a*b,  // A_OR_NOT_B
+            1.0 - a,        // NOT_A
+            1.0 - a + a*b,  // NOT_A_OR_B
+            1.0 - a*b,      // NAND
+            1.0,            // TRUE
         ];
         
         // Calculate operation-specific gradients based on how each would improve the output
@@ -232,8 +254,8 @@ impl LogicGate {
             
             let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor;
 
-            // Direct measure of how this operation would improve the output
-            op_gradients[i] = -gradient * (ops[i] - current_output) + noise;
+            let target_direction = -gradient; // Negative of loss gradient is direction toward target
+            op_gradients[i] = target_direction * ops[i] + noise;
         }
         
         // Apply softmax with higher temperature for exploration
