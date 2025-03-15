@@ -12,18 +12,24 @@ except ImportError:
     exit(1)
 
 def apply_gol_rules(grid, r, c):
-    """Apply Game of Life rules to a cell at position (r,c) in a 3x3 grid with periodic boundary conditions"""
-    # Count live neighbors with periodic boundary
+    """Apply Game of Life rules to a cell at position (r,c) without wrapping"""
+    height, width = grid.shape
     live_neighbors = 0
+    
     for dr in [-1, 0, 1]:
         for dc in [-1, 0, 1]:
             if dr == 0 and dc == 0:
                 continue  # Skip the cell itself
-            nr = (r + dr) % grid.shape[0]  # Ensure proper wrapping
-            nc = (c + dc) % grid.shape[1]
-            live_neighbors += grid[nr, nc]
+                
+            # Calculate neighbor position without wrapping
+            nr = r + dr
+            nc = c + dc
+            
+            # Only count if within grid boundaries
+            if 0 <= nr < height and 0 <= nc < width and grid[nr, nc]:
+                live_neighbors += 1
     
-    # Apply Game of Life rules
+    # Apply Conway's Game of Life rules
     if grid[r, c]:  # Cell is alive
         return live_neighbors == 2 or live_neighbors == 3
     else:  # Cell is dead
@@ -37,7 +43,7 @@ def generate_gol_training_data():
     
     # Generate all 512 possible 3x3 grid configurations
     configs = []
-    next_center_states = []
+    next_states = []
     
     for i in range(512):
         binary = format(i, '09b')
@@ -47,7 +53,7 @@ def generate_gol_training_data():
         next_center = apply_gol_rules(grid, 1, 1)
         
         configs.append(grid)
-        next_center_states.append(next_center)
+        next_states.append(next_center)
     
     # Reshape for training - configs remain 3x3 grids
     configs_reshaped = np.zeros((512, 3, 3, 1), dtype=bool)
@@ -56,7 +62,7 @@ def generate_gol_training_data():
     
     for i in range(512):
         configs_reshaped[i, :, :, 0] = configs[i]
-        next_states_reshaped[i, 1, 1, 0] = next_center_states[i]
+        next_states_reshaped[i, 1, 1, 0] = next_states[i]
     
     return configs_reshaped, next_states_reshaped
 
@@ -67,40 +73,47 @@ def test_gol_rules():
         [0, 1, 0],
         [0, 1, 0],
         [0, 1, 0]
-    ], dtype=bool).reshape(3, 3)
+    ], dtype=bool)
     
     expected1 = np.array([
         [0, 0, 0],
         [1, 1, 1],
         [0, 0, 0]
-    ], dtype=bool).reshape(3, 3)
+    ], dtype=bool)
     
+    # Apply rules to each cell
     result1 = np.zeros((3, 3), dtype=bool)
     for r in range(3):
         for c in range(3):
             result1[r, c] = apply_gol_rules(grid1, r, c)
+            print(f"Cell ({r},{c}): {grid1[r,c]} -> {result1[r,c]}")
     
     print("Blinker test passed:", np.array_equal(result1, expected1))
-    
-    # Test periodic boundary with a glider pattern
+    print("Expected:\n", expected1)
+    print("Got:\n", result1)
+
+    # Test a glider pattern
     grid2 = np.array([
         [0, 0, 1],
         [1, 0, 1],
         [0, 1, 1]
-    ], dtype=bool).reshape(3, 3)
+    ], dtype=bool)
     
     expected2 = np.array([
         [0, 1, 0],
         [0, 0, 1],
-        [1, 1, 1]
-    ], dtype=bool).reshape(3, 3)
+        [0, 1, 1]
+    ], dtype=bool)
     
-    result2 = np.zeros((3, 3), dtype=bool)
+    result2 = np.zeros_like(grid2)
     for r in range(3):
         for c in range(3):
             result2[r, c] = apply_gol_rules(grid2, r, c)
     
-    print("Periodic boundary test passed:", np.array_equal(result2, expected2))
+    print("Glider test passed:", np.array_equal(result2, expected2))
+    if not np.array_equal(result2, expected2):
+        print("Expected:\n", expected2)
+        print("Got:\n", result2)
 
 class LossTracker:
     """Track and visualize loss evolution during training"""
@@ -305,7 +318,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
     parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
     parser.add_argument('--tmp', type=float, default=2, help='Temperature')

@@ -137,11 +137,13 @@ impl LogicGate {
             *p /= sum;
         }
 
-        LogicGate {
-            op: LogicOp::A, // Default operation
+        let mut gate = LogicGate {
+            op: LogicOp::A, // Default operation will be overwritten
             inputs,
             probability,
-        }
+        };
+        gate.update_current_op(); // Set the op based on probability distribution
+        return gate;
     }
     
     // Compute the hard (binary) output of the gate
@@ -961,8 +963,6 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
                 
                 if batch_idx == 0 && i == start_idx && epoch < 3 {
-                    println!("Epoch {}: perception_grads.len(): {}, perceptions.len(): {}", 
-                        epoch, perception_grads.len(), perceptions.len());
                     println!("First few perception_grads: {:?}", &perception_grads[0..5]);
                     println!("All zeros: {}", perception_circuit_grads.iter().all(|&x| x == 0.0));
                 }
