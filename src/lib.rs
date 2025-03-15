@@ -123,12 +123,12 @@ impl LogicGate {
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
-        probability[3] = 0.08; // Bias toward A (LogicOp::A)
-        probability[5] = 0.08; // Bias toward B (LogicOp::B)
+        probability[3] = 0.09; // Bias toward A (LogicOp::A)
+        probability[5] = 0.09; // Bias toward B (LogicOp::B)
         
         // Add small random noise to break symmetry
         for p in &mut probability {
-            *p *= 0.9 + 0.2 * rand::random::<f32>();
+            *p *= 0.95 + 0.1 * rand::random::<f32>();
         }
 
         // Ensure probabilities sum to 1.0
@@ -205,12 +205,12 @@ impl LogicGate {
         if needs_reset {
             // Reset this gate's probabilities
             self.probability = vec![0.06; 16];
-            self.probability[3] = 0.08;
-            self.probability[5] = 0.08;
+            self.probability[3] = 0.09;
+            self.probability[5] = 0.09;
 
             // Add small random noise to break symmetry
             for p in &mut self.probability {
-                *p *= 0.9 + 0.2 * rand::random::<f32>();
+                *p *= 0.95 + 0.1 * rand::random::<f32>();
             }
 
             // Ensure probabilities sum to 1.0
