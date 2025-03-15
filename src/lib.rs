@@ -882,6 +882,8 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     };
                     
                     analyze_gate_distributions(&circuits_clone, epoch);
+                    println!("Current temp: {:?}", &self.temperature);
+                    println!("Current learning rate: {:?}", &learning_rate);
                 }
 
                 // Compute soft loss
@@ -963,7 +965,7 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
                 
                 if batch_idx == 0 && i == start_idx && epoch < 3 {
-                    println!("First few perception_grads: {:?}", &perception_grads[0..5]);
+                    println!("First few perception_grads: {:?}", &perception_circuit_grads);
                     println!("All zeros: {}", perception_circuit_grads.iter().all(|&x| x == 0.0));
                 }
 

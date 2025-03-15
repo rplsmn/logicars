@@ -243,6 +243,11 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     min_temperature = 0.2    # Don't go below this
 
     print(f"Training for {epochs} epochs...")
+    print(f"Batch size : {batch_size}...")
+    print(f"Initial learning rate : {learning_rate}...")
+    print(f"Initial temperature : {temperature}...")
+    print(f"L2 strength set at : {l2_strength}...")
+
     start_time = time.time()
     
     # Debug shapes
@@ -318,8 +323,8 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.2, help='Learning rate')
     parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
     parser.add_argument('--tmp', type=float, default=2, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.005, help='L2 regularisation strength')
