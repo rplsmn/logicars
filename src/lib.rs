@@ -939,15 +939,18 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         update_inputs.extend_from_slice(&current_state);
 
                         // Add batch normalization here
-                        let batch_mean = cell_grads.iter().sum::<f32>() / cell_grads.len() as f32;
-                        let batch_var = cell_grads.iter()
-                            .map(|&g| (g - batch_mean).powi(2))
-                            .sum::<f32>() / cell_grads.len() as f32;
-                        let epsilon = 1e-5;
-                        let mut normalized_grads = Vec::with_capacity(cell_grads.len());
-                        for &g in &cell_grads {
-                            normalized_grads.push((g - batch_mean) / (batch_var + epsilon).sqrt());
-                        }
+                        // let batch_mean = cell_grads.iter().sum::<f32>() / cell_grads.len() as f32;
+                        // let batch_var = cell_grads.iter()
+                        //     .map(|&g| (g - batch_mean).powi(2))
+                        //     .sum::<f32>() / cell_grads.len() as f32;
+                        // let epsilon = 1e-5;
+                        // let mut normalized_grads = Vec::with_capacity(cell_grads.len());
+                        // for &g in &cell_grads {
+                        //     normalized_grads.push((g - batch_mean) / (batch_var + epsilon).sqrt());
+                        // }
+
+                        // Skip normalization 
+                        let normalized_grads = cell_grads.clone();
                         
                         // Backpropagate through update circuit
                         let mut update_lock = update_circuit.lock().unwrap();
@@ -956,6 +959,11 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         // Prepare perception gradients
                         let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
                         
+                        if batch_idx == 0 && i == start_idx && epoch < 3 {
+                            println!("Epoch {}: perception_grads.len(): {}, perceptions.len(): {}", 
+                                epoch, perception_grads.len(), perceptions.len());
+                        }
+
                         // Pre-compute all neighborhoods
                         let neighborhood = Self::get_neighborhood_soft_static(&soft_state, h, w, height, width, state_size);
                         

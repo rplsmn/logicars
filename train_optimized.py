@@ -66,6 +66,48 @@ def generate_gol_training_data():
     
     return configs_reshaped, next_states_reshaped
 
+def test_gol_rules():
+    """Test the Game of Life rules implementation with known patterns."""
+    # Test a blinker pattern
+    grid1 = np.array([
+        [0, 1, 0],
+        [0, 1, 0],
+        [0, 1, 0]
+    ], dtype=bool).reshape(3, 3)
+    
+    expected1 = np.array([
+        [0, 0, 0],
+        [1, 1, 1],
+        [0, 0, 0]
+    ], dtype=bool).reshape(3, 3)
+    
+    result1 = np.zeros((3, 3), dtype=bool)
+    for r in range(3):
+        for c in range(3):
+            result1[r, c] = apply_gol_rules(grid1, r, c)
+    
+    print("Blinker test passed:", np.array_equal(result1, expected1))
+    
+    # Test periodic boundary with a glider pattern
+    grid2 = np.array([
+        [0, 0, 1],
+        [1, 0, 1],
+        [0, 1, 1]
+    ], dtype=bool).reshape(3, 3)
+    
+    expected2 = np.array([
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 1, 1]
+    ], dtype=bool).reshape(3, 3)
+    
+    result2 = np.zeros((3, 3), dtype=bool)
+    for r in range(3):
+        for c in range(3):
+            result2[r, c] = apply_gol_rules(grid2, r, c)
+    
+    print("Periodic boundary test passed:", np.array_equal(result2, expected2))
+
 class LossTracker:
     """Track and visualize loss evolution during training"""
     def __init__(self):
@@ -170,6 +212,11 @@ def evaluate_model(ca, test_configs, test_targets, n_samples=10, visualize=False
 
 def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperature = 0.1, l2_strength = 0.001, visualize=False, save_loss_plot=True):
     """Train a DiffLogic CA to learn Game of Life rules"""
+    
+    # Test the Game of Life rules implementation
+    print("Testing Game of Life rules implementation...")
+    test_gol_rules()
+    
     print("Generating training data...")
     configs, targets = generate_gol_training_data()
     
