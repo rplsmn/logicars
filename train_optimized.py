@@ -11,22 +11,30 @@ except ImportError:
     print("Import failed!")
     exit(1)
 
+def apply_gol_rules(grid, r, c):
+    """Apply Game of Life rules to a cell at position (r,c) in a 3x3 grid with periodic boundary conditions"""
+    # Count live neighbors with periodic boundary
+    live_neighbors = 0
+    for dr in [-1, 0, 1]:
+        for dc in [-1, 0, 1]:
+            if dr == 0 and dc == 0:
+                continue  # Skip the cell itself
+            nr = (r + dr) % 3
+            nc = (c + dc) % 3
+            if grid[nr, nc]:
+                live_neighbors += 1
+    
+    # Apply Game of Life rules
+    if grid[r, c]:  # Cell is alive
+        return live_neighbors == 2 or live_neighbors == 3
+    else:  # Cell is dead
+        return live_neighbors == 3
+
 def generate_gol_training_data():
     """
     Generate all 512 possible 3x3 grid configurations and their next states
     according to Game of Life rules.
     """
-    def apply_gol_rules(grid):
-        """Apply Game of Life rules to determine center cell's next state"""
-        center = grid[1, 1]
-        # Count live neighbors (excluding center)
-        live_neighbors = np.sum(grid) - center
-        
-        # Apply rules
-        if center:  # Cell is alive
-            return live_neighbors == 2 or live_neighbors == 3
-        else:  # Cell is dead
-            return live_neighbors == 3
     
     # Generate all 512 possible 3x3 grid configurations
     configs = []
@@ -37,11 +45,16 @@ def generate_gol_training_data():
         binary = format(i, '09b')
         grid = np.array([int(bit) for bit in binary]).reshape(3, 3).astype(bool)
         
-        # Apply GoL rules to get next state of center cell
-        next_state = apply_gol_rules(grid)
+        # Create a working copy to apply GOL rules to ALL cells
+        next_grid = np.zeros((3, 3), dtype=bool)
+        
+        # Apply GOL rules to ALL cells (not just center)
+        for r in range(3):
+            for c in range(3):
+                next_grid[r, c] = apply_gol_rules(grid, r, c)
         
         configs.append(grid)
-        next_states.append(next_state)
+        next_states.append(next_grid)
     
     # Reshape for training
     configs_reshaped = np.zeros((512, 3, 3, 1), dtype=bool)
@@ -49,8 +62,7 @@ def generate_gol_training_data():
     
     for i in range(512):
         configs_reshaped[i, :, :, 0] = configs[i]
-        # Set the center cell's next state
-        next_states_reshaped[i, 1, 1, 0] = next_states[i]
+        next_states_reshaped[i, :, :, 0] = next_states[i]
     
     return configs_reshaped, next_states_reshaped
 
