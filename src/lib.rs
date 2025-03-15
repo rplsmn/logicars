@@ -119,16 +119,16 @@ impl LogicGate {
     pub fn new(inputs: (usize, usize)) -> Self {
 
         // Start with a base probability for all gates
-        let base_prob = 0.055;
+        let base_prob = 0.065;
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
-        probability[3] = 0.08; // Bias toward A (LogicOp::A)
-        probability[5] = 0.08; // Bias toward B (LogicOp::B)
+        probability[3] = 0.07; // Bias toward A (LogicOp::A)
+        probability[5] = 0.07; // Bias toward B (LogicOp::B)
         
         // Add small random noise to break symmetry
         for p in &mut probability {
-            *p *= 0.95 + 0.1 * rand::random::<f32>();
+            *p *= 0.9 + 0.2 * rand::random::<f32>();
         }
 
         // Ensure probabilities sum to 1.0
@@ -204,9 +204,9 @@ impl LogicGate {
 
         if needs_reset {
             // Reset this gate's probabilities
-            self.probability = vec![0.06; 16];
-            self.probability[3] = 0.08;
-            self.probability[5] = 0.08;
+            self.probability = vec![0.065; 16];
+            self.probability[3] = 0.07;
+            self.probability[5] = 0.07;
 
             // Add small random noise to break symmetry
             for p in &mut self.probability {
@@ -264,7 +264,7 @@ impl LogicGate {
         
         // First, find max for numerical stability
         for i in 0..16 {
-            max_prob = max_prob.max(self.probability[i].ln() / temperature + op_gradients[i]);
+            max_prob = max_prob.max(self.probability[i].ln() / temperature + learning_rate + op_gradients[i]);
         }
         
         // Calculate exp values with subtracted max
@@ -280,10 +280,8 @@ impl LogicGate {
         for i in 0..16 {
             probs[i] /= sum_exp;
             
-            // Apply very mild L2 only to non-pass-through gates
-            if (i != 3 && i != 5) && probs[i] > 0.05 {
-                probs[i] -= learning_rate * l2_strength * probs[i];
-            }
+            // Apply L2 reg
+            probs[i] -= learning_rate * l2_strength * probs[i];
             
             // Ensure minimum probability
             probs[i] = probs[i].max(0.001);
