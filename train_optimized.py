@@ -193,7 +193,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
             # Calculate decaying temperature
             current_temperature = max(
-                temperature * (1.0 - epoch / (epochs * 0.8)),  # Decay over 80% of training
+                temperature * (1.0 - epoch / (epochs * 1.5)),  # Decay over 80% of training
                 min_temperature
             )
 
@@ -252,10 +252,10 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=16, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=0.5, help='Temperature')
-    parser.add_argument('--l2', type=float, default=0.002, help='L2 regularisation strength')
+    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
+    parser.add_argument('--tmp', type=float, default=2.0, help='Temperature')
+    parser.add_argument('--l2', type=float, default=0.02, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
     args = parser.parse_args()
