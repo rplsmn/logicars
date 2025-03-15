@@ -252,7 +252,7 @@ impl LogicGate {
 
         for i in 0..16 {
             
-            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor;
+            let noise = (rand::random::<f32>() * 2.0 - 1.0) * noise_factor * gradient.abs(); // scale noise to gradient ?
 
             let target_direction = -gradient; // Negative of loss gradient is direction toward target
             op_gradients[i] = target_direction * ops[i] + noise;
@@ -870,7 +870,8 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                         }
                     }
                 }
-                                
+
+                // diagnostics     
                 if batch_idx == 0 && i == start_idx {
                     // Create a temporary clone for analysis
                     let circuits_clone = {

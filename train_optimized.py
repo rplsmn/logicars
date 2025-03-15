@@ -174,7 +174,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     # Initialize loss tracker
     loss_tracker = LossTracker()
     
-    min_temperature = 0.02    # Don't go below this
+    min_temperature = 0.2    # Don't go below this
 
     print(f"Training for {epochs} epochs...")
     start_time = time.time()
@@ -187,20 +187,21 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
         epoch_start = time.time()
         for epoch in range(epochs):
             
-            # Slower initial learning rate with gradual increase
-            learning_rate = learning_rate * (1.0 + 0.005 * epoch)
-            learning_rate = min(learning_rate, 0.2)  # Cap at 0.2         
+            # Slower initial learning rate with gradual increase 
+            # or should it be learning rate decay ??
+            current_learning_rate = learning_rate * (1.0 - 0.005 * epoch)
+            current_learning_rate = max(current_learning_rate, 0.001)  # Cap at 0.001         
 
             # Calculate decaying temperature
             current_temperature = max(
-                temperature * (1.0 - epoch / (epochs * 1.5)),  # Decay over 80% of training
+                temperature * (1.0 - epoch / (epochs * 1.1)),  # Decay over 90% of training
                 min_temperature
             )
 
             # Set the temperature for this epoch
             ca.set_temperature(current_temperature)
             # Call the train_epoch method (to be implemented in Rust)
-            soft_loss, hard_loss = ca.train_epoch(configs, targets, learning_rate, epoch)                      
+            soft_loss, hard_loss = ca.train_epoch(configs, targets, current_learning_rate, epoch)                      
             
             # Update loss tracker
             loss_tracker.update(epoch, soft_loss, hard_loss)
@@ -214,7 +215,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     except AttributeError:
         print("The train_epoch method is not available. Falling back to standard training.")
         try:
-            ca.train(configs, targets, learning_rate, epochs)
+            ca.train(configs, targets, current_learning_rate, epochs)
             print("Training completed without loss tracking.")
         except Exception as e:
             print(f"Training error: {e}")
@@ -231,7 +232,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
             small_configs = configs[:10].copy()
             small_targets = targets[:10].copy()
             try:
-                ca.train(small_configs, small_targets, learning_rate, 10)
+                ca.train(small_configs, small_targets, current_learning_rate, 10)
                 print("Training with smaller batch succeeded!")
             except Exception as e:
                 print(f"Still failed with error: {e}")
@@ -252,10 +253,10 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=1.5, help='Temperature')
-    parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
+    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
+    parser.add_argument('--tmp', type=float, default=1.8, help='Temperature')
+    parser.add_argument('--l2', type=float, default=0.002, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
     args = parser.parse_args()
