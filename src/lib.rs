@@ -123,8 +123,8 @@ impl LogicGate {
         let mut probability = vec![base_prob; 16];
 
         // Add stronger bias toward pass-through gates (A and B)
-        probability[3] = 0.09; // Bias toward A (LogicOp::A)
-        probability[5] = 0.09; // Bias toward B (LogicOp::B)
+        probability[3] = 0.08; // Bias toward A (LogicOp::A)
+        probability[5] = 0.08; // Bias toward B (LogicOp::B)
         
         // Add small random noise to break symmetry
         for p in &mut probability {
@@ -201,14 +201,14 @@ impl LogicGate {
     pub fn update_probabilities(&mut self, gradient: f32, learning_rate: f32, a: f32, b: f32, l2_strength: f32, temperature: f32) {
         
         // detect if we're stuck
-        let is_dominated = self.probability.iter().any(|&p| p > 0.8);
-        let needs_reset = is_dominated && rand::random::<f32>() < 0.1;
+        let is_dominated = self.probability.iter().any(|&p| p > 0.95);
+        let needs_reset = is_dominated && rand::random::<f32>() < 0.05;
 
         if needs_reset {
             // Reset this gate's probabilities
             self.probability = vec![0.06; 16];
-            self.probability[3] = 0.09;
-            self.probability[5] = 0.09;
+            self.probability[3] = 0.08;
+            self.probability[5] = 0.08;
 
             // Add small random noise to break symmetry
             for p in &mut self.probability {
@@ -882,8 +882,11 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                     };
                     
                     analyze_gate_distributions(&circuits_clone, epoch);
-                    println!("Current temp: {:?}", &self.temperature);
-                    println!("Current learning rate: {:?}", &learning_rate);
+                    if epoch % 10 == 0 {
+                        println!("Current temp: {:?}", &self.temperature);
+                        println!("Current learning rate: {:?}", &learning_rate);
+                    }
+                    
                 }
 
                 // Compute soft loss
@@ -962,7 +965,14 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate, self.l2_strength, self.temperature);
 
                 // Prepare perception gradients
-                let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
+                let mut perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
+                
+                // Add small noise to break zero gradient problem ?
+                for grad in &mut perception_circuit_grads {
+                    if *grad == 0.0 {
+                        *grad = (rand::random::<f32>() * 2.0 - 1.0) * 0.01;
+                    }
+                }
                 
                 if batch_idx == 0 && i == start_idx && epoch < 3 {
                     println!("First few perception_grads: {:?}", &perception_circuit_grads);
