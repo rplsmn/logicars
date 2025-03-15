@@ -19,10 +19,9 @@ def apply_gol_rules(grid, r, c):
         for dc in [-1, 0, 1]:
             if dr == 0 and dc == 0:
                 continue  # Skip the cell itself
-            nr = (r + dr) % 3
-            nc = (c + dc) % 3
-            if grid[nr, nc]:
-                live_neighbors += 1
+            nr = (r + dr) % grid.shape[0]  # Ensure proper wrapping
+            nc = (c + dc) % grid.shape[1]
+            live_neighbors += grid[nr, nc]
     
     # Apply Game of Life rules
     if grid[r, c]:  # Cell is alive
@@ -38,31 +37,26 @@ def generate_gol_training_data():
     
     # Generate all 512 possible 3x3 grid configurations
     configs = []
-    next_states = []
+    next_center_states = []
     
     for i in range(512):
-        # Convert integer to binary representation
         binary = format(i, '09b')
         grid = np.array([int(bit) for bit in binary]).reshape(3, 3).astype(bool)
         
-        # Create a working copy to apply GOL rules to ALL cells
-        next_grid = np.zeros((3, 3), dtype=bool)
-        
-        # Apply GOL rules to ALL cells (not just center)
-        for r in range(3):
-            for c in range(3):
-                next_grid[r, c] = apply_gol_rules(grid, r, c)
+        # Only compute next state for CENTER cell (1,1)
+        next_center = apply_gol_rules(grid, 1, 1)
         
         configs.append(grid)
-        next_states.append(next_grid)
+        next_center_states.append(next_center)
     
-    # Reshape for training
+    # Reshape for training - configs remain 3x3 grids
     configs_reshaped = np.zeros((512, 3, 3, 1), dtype=bool)
+    # Next states need to match the expected shape for Rust interface
     next_states_reshaped = np.zeros((512, 3, 3, 1), dtype=bool)
     
     for i in range(512):
         configs_reshaped[i, :, :, 0] = configs[i]
-        next_states_reshaped[i, :, :, 0] = next_states[i]
+        next_states_reshaped[i, 1, 1, 0] = next_center_states[i]
     
     return configs_reshaped, next_states_reshaped
 
@@ -311,11 +305,11 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
     parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=1.8, help='Temperature')
-    parser.add_argument('--l2', type=float, default=0.002, help='L2 regularisation strength')
+    parser.add_argument('--tmp', type=float, default=2, help='Temperature')
+    parser.add_argument('--l2', type=float, default=0.005, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
     args = parser.parse_args()

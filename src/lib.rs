@@ -886,21 +886,21 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 let mut sample_soft_loss = 0.0;
                 let mut sample_hard_loss = 0.0;
                 
-                for h in 0..height {
-                    for w in 0..width {
-                        for s in 0..state_size {
-                            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-                            let target_bool = target_states[[i, h, w, s]];
-                            
-                            // Soft loss
-                            let diff_soft = next_state_soft[[h, w, s]] - target;
-                            sample_soft_loss += diff_soft * diff_soft;
-                            
-                            // Hard loss
-                            if next_state_hard[[h, w, s]] != target_bool {
-                                sample_hard_loss += 1.0;
-                            }
-                        }
+                // Only compare the center cell (not all cells)
+                // For a 3x3 grid, the center cell is at (1,1)
+                let h = 1;
+                let w = 1;
+                for s in 0..state_size {
+                    let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                    let target_bool = target_states[[i, h, w, s]];
+                    
+                    // Soft loss
+                    let diff_soft = next_state_soft[[h, w, s]] - target;
+                    sample_soft_loss += diff_soft * diff_soft;
+                    
+                    // Hard loss
+                    if next_state_hard[[h, w, s]] != target_bool {
+                        sample_hard_loss += 1.0;
                     }
                 }
                 
@@ -909,71 +909,73 @@ fn train_epoch_internal(&mut self, initial_states: &Array4<bool>, target_states:
                 
                 // Backward pass
                 let mut output_grads = Array3::<f32>::zeros((height, width, state_size));
-                for h in 0..height {
-                    for w in 0..width {
-                        for s in 0..state_size {
-                            let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
-                            output_grads[[h, w, s]] = 2.0 * (next_state_soft[[h, w, s]] - target);
-                        }
-                    }
+                // Only calculate gradients for center cell (1,1)
+                let h = 1;
+                let w = 1;
+                for s in 0..state_size {
+                    let target = if target_states[[i, h, w, s]] { 1.0 } else { 0.0 };
+                    output_grads[[h, w, s]] = 2.0 * (next_state_soft[[h, w, s]] - target);
                 }
                 
                 // Update perception and update circuits
-                for h in 0..height {
-                    for w in 0..width {
-                        // Extract gradients for this cell
-                        let mut cell_grads = Vec::with_capacity(state_size);
-                        for s in 0..state_size {
-                            cell_grads.push(output_grads[[h, w, s]]);
-                        }
-                        
-                        // Get inputs to update circuit
-                        let mut update_inputs = Vec::new();
-                        for p in &perceptions {
-                            update_inputs.push(p[[h, w]]);
-                        }
-                        let mut current_state = Vec::with_capacity(state_size);
-                        for s in 0..state_size {
-                            current_state.push(soft_state[[h, w, s]]);
-                        }
-                        update_inputs.extend_from_slice(&current_state);
+                // Only update for the center cell
+                let h = 1;
+                let w = 1;
 
-                        // Add batch normalization here
-                        // let batch_mean = cell_grads.iter().sum::<f32>() / cell_grads.len() as f32;
-                        // let batch_var = cell_grads.iter()
-                        //     .map(|&g| (g - batch_mean).powi(2))
-                        //     .sum::<f32>() / cell_grads.len() as f32;
-                        // let epsilon = 1e-5;
-                        // let mut normalized_grads = Vec::with_capacity(cell_grads.len());
-                        // for &g in &cell_grads {
-                        //     normalized_grads.push((g - batch_mean) / (batch_var + epsilon).sqrt());
-                        // }
-
-                        // Skip normalization 
-                        let normalized_grads = cell_grads.clone();
-                        
-                        // Backpropagate through update circuit
-                        let mut update_lock = update_circuit.lock().unwrap();
-                        let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate, self.l2_strength, self.temperature);
-                        
-                        // Prepare perception gradients
-                        let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
-                        
-                        if batch_idx == 0 && i == start_idx && epoch < 3 {
-                            println!("Epoch {}: perception_grads.len(): {}, perceptions.len(): {}", 
-                                epoch, perception_grads.len(), perceptions.len());
-                        }
-
-                        // Pre-compute all neighborhoods
-                        let neighborhood = Self::get_neighborhood_soft_static(&soft_state, h, w, height, width, state_size);
-                        
-                        // Update each circuit
-                        let mut perception_lock = perception_circuits.lock().unwrap();
-                        for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
-                            circuit.backward(&neighborhood, perception_circuit_grads[p_idx], adjusted_learning_rate, self.l2_strength, self.temperature);
-                        }
-                    }
+                // Extract gradients for this cell
+                let mut cell_grads = Vec::with_capacity(state_size);
+                for s in 0..state_size {
+                    cell_grads.push(output_grads[[h, w, s]]);
                 }
+
+                // Get inputs to update circuit
+                let mut update_inputs = Vec::new();
+                for p in &perceptions {
+                    update_inputs.push(p[[h, w]]);
+                }
+                let mut current_state = Vec::with_capacity(state_size);
+                for s in 0..state_size {
+                    current_state.push(soft_state[[h, w, s]]);
+                }
+                update_inputs.extend_from_slice(&current_state);
+
+                // Add batch normalization here
+                // let batch_mean = cell_grads.iter().sum::<f32>() / cell_grads.len() as f32;
+                // let batch_var = cell_grads.iter()
+                //     .map(|&g| (g - batch_mean).powi(2))
+                //     .sum::<f32>() / cell_grads.len() as f32;
+                // let epsilon = 1e-5;
+                // let mut normalized_grads = Vec::with_capacity(cell_grads.len());
+                // for &g in &cell_grads {
+                //     normalized_grads.push((g - batch_mean) / (batch_var + epsilon).sqrt());
+                // }
+
+                // Skip normalization 
+                let normalized_grads = cell_grads.clone();
+                
+                // Backpropagate through update circuit
+                let mut update_lock = update_circuit.lock().unwrap();
+                let perception_grads = update_lock.backward(&update_inputs, &normalized_grads, adjusted_learning_rate, self.l2_strength, self.temperature);
+
+                // Prepare perception gradients
+                let perception_circuit_grads = perception_grads[0..perceptions.len()].to_vec();
+                
+                if batch_idx == 0 && i == start_idx && epoch < 3 {
+                    println!("Epoch {}: perception_grads.len(): {}, perceptions.len(): {}", 
+                        epoch, perception_grads.len(), perceptions.len());
+                    println!("First few perception_grads: {:?}", &perception_grads[0..5]);
+                    println!("All zeros: {}", perception_circuit_grads.iter().all(|&x| x == 0.0));
+                }
+
+                // Pre-compute neighborhood for center cell
+                let neighborhood = Self::get_neighborhood_soft_static(&soft_state, h, w, height, width, state_size);
+
+                // Update each circuit
+                let mut perception_lock = perception_circuits.lock().unwrap();
+                for (p_idx, circuit) in perception_lock.iter_mut().enumerate() {
+                    circuit.backward(&neighborhood, perception_circuit_grads[p_idx], adjusted_learning_rate, self.l2_strength, self.temperature);
+                }                    
+                
             }
             
             (batch_soft_loss, batch_hard_loss)
