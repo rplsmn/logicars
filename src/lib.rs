@@ -6,7 +6,7 @@ mod python_bindings;
 use pyo3::prelude::*;
 
 // Diagnostics helper function remains in the lib file
-fn analyze_gate_distributions(circuits: &[difflogicca::PerceptionCircuit], epoch: usize) {
+fn analyze_gate_distributions(circuits: &[circuits::PerceptionCircuit], epoch: usize) {
     if epoch % 10 != 0 {
         return;
     }
@@ -87,7 +87,7 @@ pub use logic_gates::{LogicGate, LogicOp};
 
 // The PyO3 module definition
 #[pymodule]
-fn logicars(py: Python, m: &PyModule) -> PyResult<()> {
+fn logicars(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     python_bindings::register(py, m)?;
     Ok(())
 }

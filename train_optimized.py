@@ -240,7 +240,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     # Initialize loss tracker
     loss_tracker = LossTracker()
     
-    min_temperature = 0.2    # Don't go below this
+    min_temperature = 0.5    # Don't go below this
     min_learning_rate = 0.001
 
     print(f"Training for {epochs} epochs...")
@@ -261,18 +261,18 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
             
             # Slower initial learning rate with gradual increase 
             # or should it be learning rate decay ??
-            current_learning_rate = learning_rate * (1.0 - epoch / (epochs * 1.5)) # Decay over 150% of training
+            current_learning_rate = learning_rate * (1.0 - (epoch / epochs) * 0.8) # Decay 
             current_learning_rate = max(current_learning_rate, min_learning_rate)  # Cap at 0.001         
 
             # Calculate decaying temperature
             current_temperature = max(
-                temperature * (1.0 - epoch / (epochs * 1.5)),  # Decay over 150% of training
+                temperature * (1.0 - epoch / epochs),  # Decay 
                 min_temperature
             )
 
             # Set the temperature for this epoch
             ca.set_temperature(current_temperature)
-            # Call the train_epoch method (to be implemented in Rust)
+     
             soft_loss, hard_loss = ca.train_epoch(configs, targets, current_learning_rate, epoch)                      
             
             # Update loss tracker
@@ -283,7 +283,20 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
                 epoch_time = time.time() - epoch_start
                 print(f"Epoch {epoch}/{epochs}: Soft Loss = {soft_loss:.6f}, Hard Loss = {hard_loss:.6f}, Time: {epoch_time:.2f}s")
                 epoch_start = time.time()
-    
+
+        print("Starting cooldown phase...")
+        cooldown_epochs = 50
+        cooldown_lr = min_learning_rate * 0.1
+        fixed_temperature = min_temperature
+
+        for epoch in range(epochs, epochs + cooldown_epochs):
+            ca.set_temperature(fixed_temperature) 
+            soft_loss, hard_loss = ca.train_epoch(configs, targets, cooldown_lr, epoch)
+            loss_tracker.update(epoch, soft_loss, hard_loss)
+            
+            if epoch % 10 == 0:
+                print(f"Cooldown {epoch-epochs}/{cooldown_epochs}: Soft Loss = {soft_loss:.6f}, Hard Loss = {hard_loss:.6f}")
+
     except AttributeError:
         print("The train_epoch method is not available. Falling back to standard training.")
         try:
@@ -325,9 +338,9 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
     parser.add_argument('--epochs', type=int, default=300, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.5, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=512, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=2, help='Temperature')
+    parser.add_argument('--lr', type=float, default=0.3, help='Learning rate')
+    parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
+    parser.add_argument('--tmp', type=float, default=3, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
