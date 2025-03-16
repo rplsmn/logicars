@@ -266,7 +266,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
             # Calculate decaying temperature
             current_temperature = max(
-                temperature * (1.0 - epoch / epochs),  # Decay 
+                temperature * (1.0 - (epoch / epochs)**2),  # Decay 
                 min_temperature
             )
 
@@ -285,7 +285,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
                 epoch_start = time.time()
 
         print("Starting cooldown phase...")
-        cooldown_epochs = 50
+        cooldown_epochs = 100
         cooldown_lr = min_learning_rate * 0.1
         fixed_temperature = min_temperature
 
@@ -337,10 +337,10 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
-    parser.add_argument('--epochs', type=int, default=300, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=0.3, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate')
     parser.add_argument('--batchsize', type=int, default=32, help='Batch size')
-    parser.add_argument('--tmp', type=float, default=3, help='Temperature')
+    parser.add_argument('--tmp', type=float, default=5, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
     parser.add_argument('--no-save-plot', action='store_false', dest='save_plot', help='Do not save loss plot')
