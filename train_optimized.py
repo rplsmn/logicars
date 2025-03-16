@@ -241,6 +241,7 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
     loss_tracker = LossTracker()
     
     min_temperature = 0.2    # Don't go below this
+    min_learning_rate = 0.001
 
     print(f"Training for {epochs} epochs...")
     print(f"Batch size : {batch_size}...")
@@ -260,12 +261,12 @@ def train_gol_model(epochs=200, learning_rate=0.001, batch_size = 64, temperatur
             
             # Slower initial learning rate with gradual increase 
             # or should it be learning rate decay ??
-            current_learning_rate = learning_rate * (1.0 - 0.005 * epoch)
-            current_learning_rate = max(current_learning_rate, 0.001)  # Cap at 0.001         
+            current_learning_rate = learning_rate * (1.0 - epoch / (epochs * 1.5)) # Decay over 150% of training
+            current_learning_rate = max(current_learning_rate, min_learning_rate)  # Cap at 0.001         
 
             # Calculate decaying temperature
             current_temperature = max(
-                temperature * (1.0 - epoch / (epochs * 1.1)),  # Decay over 90% of training
+                temperature * (1.0 - epoch / (epochs * 1.5)),  # Decay over 150% of training
                 min_temperature
             )
 
@@ -325,7 +326,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DiffLogic CA to learn Game of Life rules')
     parser.add_argument('--epochs', type=int, default=300, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=0.5, help='Learning rate')
-    parser.add_argument('--batchsize', type=int, default=64, help='Batch size')
+    parser.add_argument('--batchsize', type=int, default=512, help='Batch size')
     parser.add_argument('--tmp', type=float, default=2, help='Temperature')
     parser.add_argument('--l2', type=float, default=0.001, help='L2 regularisation strength')
     parser.add_argument('--visualize', action='store_true', help='Visualize evaluation results')
