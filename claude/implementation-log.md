@@ -619,12 +619,177 @@ for i in 0..num_params {
 
 ---
 
+## Phase 1.1: Perception Circuit - IN PROGRESS
+
+**Date**: 2026-01-01
+**Status**: EXIT CRITERIA NOT YET MET (81% accuracy, need 95%)
+**Branch**: `claude/review-docs-update-claude-Xf4tl`
+
+### What Was Implemented
+
+1. **Grid Type** (`src/phase_1_1.rs`)
+   - 2D binary cell grid with toroidal boundary conditions
+   - 3x3 neighborhood extraction with wrapping
+   - Neighborhood encoding as 9-bit index (512 configurations)
+
+2. **Neighborhood Type** (`src/phase_1_1.rs`)
+   - Value type for 3x3 neighborhoods
+   - Conversion to/from 9-bit index
+   - Game of Life next-state computation
+   - Neighbor counting
+
+3. **GolTruthTable** (`src/phase_1_1.rs`)
+   - All 512 neighborhood configurations
+   - Precomputed Game of Life next states
+   - 140 alive outcomes, 372 dead outcomes
+
+4. **PerceptionKernel** (`src/phase_1_1.rs`)
+   - Shallow kernel: 16 gates in layer 1, 25 total gates
+   - Configurable topologies (first_kernel, minimal)
+   - Soft and hard execution modes
+
+5. **DeepPerceptionKernel** (`src/phase_1_1.rs`)
+   - 6-layer architecture with 66 gates total
+   - Layer 1: 32 gates with comprehensive neighborhood coverage
+   - Subsequent layers: 16 → 8 → 4 → 2 → 1 gates
+   - Full backpropagation through all layers
+
+6. **Trainers** (`src/phase_1_1.rs`)
+   - PerceptionTrainer for shallow kernels
+   - DeepPerceptionTrainer for deep kernels
+   - AdamW optimizer (LR=0.05, gradient clipping=100.0)
+
+7. **Test Binary** (`src/bin/train_perception.rs`)
+   - Tests shallow and deep architectures
+   - Multiple learning rates and iteration counts
+
+### Test Results
+
+**All 35 unit tests passing** (7 new for Phase 1.1):
+- Grid creation, wrapping, neighborhood extraction
+- Neighborhood index conversion roundtrip
+- Game of Life rules verification
+- Perception topology and kernel creation
+- Numerical gradient checking for perception
+
+**Training Results:**
+- **Shallow kernel (7 gates)**: 73.44% accuracy (plateaued)
+- **Full kernel (25 gates)**: 73.44% accuracy (plateaued)
+- **Deep kernel (66 gates)**: **80.86% accuracy** (best)
+  - Peak: 81.84% around iteration 9100
+  - Still improving slowly
+
+### Exit Criteria: ❌ NOT MET
+
+- ❌ >95% accuracy on 512 configurations (achieved 80.86%)
+- ✅ Training infrastructure works correctly
+- ✅ Gradients verified numerically
+- ✅ Deep architecture shows improvement over shallow
+
+### Key Technical Decisions
+
+1. **Toroidal Boundaries**:
+   - Grid wraps for edge cells
+   - Standard for CA implementations
+
+2. **Hierarchical Reduction**:
+   - Deep kernel uses sequential pairing
+   - Layer N+1 has half the gates of layer N
+   - Enables information aggregation
+
+3. **Connection Patterns**:
+   - Layer 1: Center vs neighbors, adjacent pairs, diagonals
+   - 32 connections covering all important relationships
+
+### Important Learnings
+
+1. **Shallow Networks Plateau Early**:
+   - ~73% accuracy regardless of iterations
+   - Insufficient depth for counting neighbors
+
+2. **Deep Networks Help But Aren't Enough**:
+   - 6 layers with 66 gates reaches ~81%
+   - Still below 95% target
+   - Need more expressive architecture
+
+3. **Game of Life is Hard**:
+   - Requires counting 8 neighbors
+   - Binary gates can only compare 2 values
+   - Need many gates to effectively count
+
+4. **Reference Uses More Capacity**:
+   - Reference implementation uses 128-512 hidden units
+   - Our 66 gates may not be enough
+
+### Code Organization
+
+```
+src/
+├── phase_0_1.rs         # Single gate (Phase 0.1)
+├── phase_0_2.rs         # Gate layer (Phase 0.2)
+├── phase_0_3.rs         # Multi-layer circuits (Phase 0.3)
+├── phase_1_1.rs         # NEW - Perception circuits
+├── optimizer.rs          # AdamW (reused)
+├── trainer.rs            # Single gate trainer (Phase 0.1)
+├── bin/
+│   ├── train_gate.rs    # Single gate demo
+│   ├── train_layer.rs   # Layer training demo
+│   ├── train_circuit.rs # Circuit training demo
+│   └── train_perception.rs # NEW - Perception training demo
+└── lib.rs               # Updated exports
+```
+
+### Files Changed
+
+- `CLAUDE.md`: Added instructions for creating claude/ folder
+- `src/phase_1_1.rs`: NEW - Grid, Neighborhood, GolTruthTable, kernels, trainers
+- `src/lib.rs`: Added Phase 1.1 exports
+- `src/bin/train_perception.rs`: NEW - Integration test binary
+- `Cargo.toml`: Added train_perception binary target
+
+### Commands for Next Developer
+
+```bash
+# Run all unit tests (35 tests)
+cargo test --lib
+
+# Run Phase 1.1 specific tests
+cargo test phase_1_1 --lib
+
+# Run perception training (takes ~5-10 minutes)
+cargo run --bin train_perception --release
+```
+
+### Next Steps for Phase 1.1
+
+To reach >95% accuracy:
+
+1. **Increase network capacity**:
+   - More gates per layer (match reference: 128-512)
+   - More parallel processing paths
+
+2. **Try different architectures**:
+   - Multiple parallel kernels instead of single deep one
+   - Wider layers instead of just deeper
+
+3. **Consider alternative approaches**:
+   - Multi-kernel perception (as in reference)
+   - Combine with update module earlier
+
+---
+
 ## Next Steps
 
-**Immediate**: Implement Phase 1 (Game of Life MVP)
+**Immediate**: Continue Phase 1.1 or move to Phase 1.2
+
+Options:
+1. Increase network capacity to reach 95% accuracy on perception alone
+2. Move to Phase 1.2 (Update Circuit Integration) and combine perception + update
+   - This follows the reference architecture more closely
+   - Perception extracts features, update makes final prediction
 
 **Phase 1 Components**:
-- 1.1: Perception Circuit (3x3 neighborhood → single bit output)
+- 1.1: Perception Circuit - IN PROGRESS (81% accuracy)
 - 1.2: Update Circuit Integration (perception outputs + center cell → next state)
 - 1.3: Training Loop (MSE loss, Game of Life data generation)
 - 1.4: Multi-Step Rollout (test on gliders, blinkers, still lifes)
@@ -648,5 +813,5 @@ These questions arose during Phases 0.1 and 0.2 and may need answers in future p
 ---
 
 **Last Updated**: 2026-01-01
-**Last Phase Completed**: 0.3 - Multi-Layer Circuits
-**Status**: Ready for Phase 1 (Game of Life MVP)
+**Current Phase**: 1.1 - Perception Circuit (IN PROGRESS)
+**Status**: 81% accuracy achieved, need 95% for exit criteria
