@@ -9,6 +9,112 @@
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
+### If the `claude/` folder doesn't exist
+
+Create it and add the two key documents:
+
+```bash
+mkdir claude
+```
+
+#### 1. Create `claude/plan.md` (Development Roadmap)
+
+This document should contain:
+
+- **Project overview**: What you're building and primary references (papers, implementations)
+- **Phased development plan**: Break the work into distinct phases with clear goals
+- **Exit criteria for each phase**: Specific, measurable conditions that must be met before proceeding
+- **Key implementation details**: Important algorithms, hyperparameters, architectural decisions
+- **Risk mitigation strategies**: What could go wrong and how to handle it
+- **Critical success factors**: Principles to follow (e.g., "verify before proceeding", "test first")
+
+Structure example:
+```markdown
+# Project Name Development Roadmap
+
+## Primary References
+- [Link to paper/docs]
+- [Link to reference implementation]
+
+## Phase 0: Foundation
+**Goal**: [What this phase accomplishes]
+
+### 0.1 First Component
+- What to implement
+- **Exit criteria**: Specific tests/metrics that must pass
+
+### 0.2 Second Component
+...
+
+## Phase 1: Core Feature
+...
+```
+
+#### 2. Create `claude/implementation-log.md` (Progress & Learnings)
+
+This document should contain:
+
+- **Development workflow**: The proven pattern for completing phases
+- **Phase completion records**: For each completed phase:
+  - Date and status
+  - What was implemented (with file locations)
+  - Test results and metrics
+  - Exit criteria verification (✅ or ❌)
+  - Key technical decisions and rationale
+  - Important learnings and gotchas
+  - Commands for next developer
+- **Code organization**: Current project structure
+- **Common patterns**: Reusable code patterns (testing, training, etc.)
+- **Questions for later**: Issues to address in future phases
+- **Next steps**: Clear direction for what comes next
+
+Structure example:
+```markdown
+# Project Name Implementation Log
+
+## Development Workflow (PROVEN PATTERN)
+1. Create Todo List
+2. Write unit tests first
+...
+
+## Phase 0.1: First Component ✅ COMPLETE
+
+**Date**: YYYY-MM-DD
+**Status**: ALL EXIT CRITERIA MET
+
+### What Was Implemented
+...
+
+### Test Results
+...
+
+### Exit Criteria: ✅ ALL MET
+- ✅ Criterion 1
+- ✅ Criterion 2
+...
+
+### Key Technical Decisions
+...
+
+### Important Learnings
+...
+
+### Commands for Next Developer
+```bash
+# How to run tests
+# How to verify this phase
+```
+
+## Next Steps
+**Phase X.X**: Description of what's next
+```
+
+#### Why These Documents Matter
+
+- **`plan.md`** is your north star - it prevents scope creep and ensures each phase has clear completion criteria
+- **`implementation-log.md`** is institutional memory - it captures what worked, what didn't, and why decisions were made
+- Together they enable any developer (human or AI) to pick up the project and continue effectively
+
 ## Quick Reference
 
 ### Build & Test Commands
