@@ -6,8 +6,6 @@ This document tracks the implementation progress, key learnings, and the success
 
 ## Development Workflow (PROVEN PATTERN)
 
-This workflow has been validated and should be followed for each phase:
-
 1. **Create Todo List**: Use TodoWrite to break down the phase into specific tasks
 2. **Write Unit Tests First**: Create tests for core functionality before implementation
 3. **Implement Core Logic**: Write the actual implementation
@@ -19,799 +17,245 @@ This workflow has been validated and should be followed for each phase:
 
 ---
 
-## Phase 0.1: Single Gate Training ✅ COMPLETE
+## Phase 0: Foundation ✅ COMPLETE
 
-**Date**: 2026-01-01
-**Status**: ALL EXIT CRITERIA MET
-**Branch**: `claude/setup-testing-environment-Hsgc1`
-**Commit**: `b7cf202`
+All foundation phases completed successfully. Core primitives validated and working.
 
-### What Was Implemented
+| Phase | Description | Gates | Tests | Key Result |
+|-------|-------------|-------|-------|------------|
+| 0.1 | Single Gate Training | 1 | 10 | 100% accuracy on AND/OR/XOR |
+| 0.2 | Gate Layer | N | 17 | 8 gates learning 8 ops simultaneously |
+| 0.3 | Multi-Layer Circuits | 2-3 layers | 25 | XOR via 2-layer circuit, backprop verified |
 
-1. **Binary Operations Module** (`src/phase_0_1.rs`)
-   - All 16 binary logic operations (AND, OR, XOR, NAND, NOR, etc.)
-   - Truth table representation using enum values (bit patterns 0-15)
-   - Both hard execution (boolean) and soft execution (probabilistic)
+### Key Technical Decisions (Phase 0)
 
-2. **Probabilistic Gate** (`src/phase_0_1.rs`)
-   - Maintains probability distribution over all 16 operations via logits
-   - Soft decoding: `softmax` for training (weighted sum of all gates)
-   - Hard decoding: `argmax` for inference (only highest probability gate)
-   - Pass-through gate (A) initialized to logit=10.0 for stability
+- **Truth Table Encoding**: Enum values encode truth tables (e.g., AND=8=0b1000), execute via `(value >> bits) & 1`
+- **Soft Execution**: Boolean inputs as probabilities in [0,1], AND(a,b)=a*b, OR(a,b)=a+b-a*b
+- **Gradient Verification**: Numerical gradient checking validates all analytical gradients
+- **Pass-through Init**: Gate index 3 initialized to logit=10.0 for training stability
+- **Hyperparameters**: LR=0.05, gradient clipping=100.0, AdamW with weight_decay=0.01
 
-3. **AdamW Optimizer** (`src/optimizer.rs`)
-   - Learning rate: 0.05 (from reference implementation)
-   - Gradient clipping at 100.0 (critical for stability)
-   - Weight decay: 0.01
-   - Beta1: 0.9, Beta2: 0.999
+### Key Learnings (Phase 0)
 
-4. **Training Infrastructure** (`src/trainer.rs`)
-   - Truth table generation for any operation
-   - MSE loss computation
-   - Hard accuracy metric (using argmax gate)
-   - Full training loop with convergence detection
+1. **XOR takes ~2x longer** than AND/OR to converge (non-linearly separable)
+2. **Networks find shortcuts**: Multi-layer XOR often learns XOR directly in layer 1, uses pass-through in later layers
+3. **Convergence time is constant** with layer size (3-8 gates: ~1000 iterations each)
+4. **Test-first development** catches bugs early; numerical gradient checking is essential
 
-5. **Test Binary** (`src/bin/train_gate.rs`)
-   - Tests AND, OR, XOR convergence
-   - Displays training progress every 100 iterations
-   - Reports final metrics and probability distributions
-
-### Test Results
-
-**All 10 unit tests passing:**
-- Binary operation truth tables
-- Soft execution matches hard at extremes
-- Gate initialization (pass-through dominant)
-- Probabilities sum to 1.0
-- **Numerical gradient checking** (validates analytical gradients)
-- Truth table generation for AND, OR, XOR
-- Optimizer step and gradient clipping
-
-**Training convergence:**
-- **AND**: 100% accuracy in 770 iterations (96.82% probability)
-- **OR**: 100% accuracy in 770 iterations (96.82% probability)
-- **XOR**: 100% accuracy in 1,342 iterations (97.38% probability)
-
-### Exit Criteria: ✅ ALL MET
-
-- ✅ >99% hard accuracy on truth tables (achieved 100%)
-- ✅ Loss converges (target: <1e-4, achieved ~1e-4)
-- ✅ Probability distributions sharpen to target operations
-- ✅ Gradient computation verified via numerical checking
-- ✅ Reproducible convergence across multiple runs
-
-### Key Technical Decisions
-
-1. **Truth Table Encoding**:
-   - Enum values directly encode truth tables (e.g., AND=8 = 0b1000)
-   - Allows efficient execution: `(enum_value >> input_bits) & 1`
-
-2. **Soft Execution via Probability**:
-   - Treat boolean inputs as probabilities in [0,1]
-   - Compute expected output based on all input combinations
-   - Example: `AND(a,b) = a * b` in soft mode
-
-3. **Gradient Computation**:
-   - Chain rule through softmax: `dL/dlogit = dL/doutput * doutput/dprob * dprob/dlogit`
-   - Softmax Jacobian: `dprob[j]/dlogit[i] = prob[j] * (δ_ij - prob[i])`
-   - Verified with numerical gradients (central difference method)
-
-4. **Convergence Threshold**:
-   - Initial target of 1e-6 was too strict
-   - Adjusted to 1e-4 for practical convergence
-   - Hard accuracy of 100% is the real validation metric
-
-### Important Learnings
-
-1. **Start Simple, Verify Everything**:
-   - Single gate is simplest possible unit
-   - Numerical gradient checking caught potential bugs early
-   - Unit tests prevented regressions
-
-2. **Reference Implementation Values Matter**:
-   - Pass-through init (10.0), gradient clipping (100.0), LR (0.05) are critical
-   - These aren't arbitrary - they ensure training stability
-
-3. **Soft vs Hard Decoding**:
-   - Train with soft (differentiable)
-   - Evaluate with hard (discrete, interpretable)
-   - Report both metrics to track convergence
-
-4. **XOR Takes Longer**:
-   - AND/OR converge in ~770 iterations
-   - XOR takes ~1,340 iterations (nearly 2x)
-   - This makes sense: XOR is non-linearly separable
-
-### Code Organization
+### Code Organization (Phase 0)
 
 ```
 src/
-├── phase_0_1.rs       # Binary ops + ProbabilisticGate
+├── phase_0_1.rs       # BinaryOp enum, ProbabilisticGate
+├── phase_0_2.rs       # GateLayer, LayerTruthTable, LayerTrainer
+├── phase_0_3.rs       # Circuit, ConnectionPattern, CircuitTrainer
 ├── optimizer.rs        # AdamW implementation
-├── trainer.rs          # Training loop + metrics
-├── bin/
-│   └── train_gate.rs  # Integration test binary
-└── lib.rs             # Public API exports
-```
-
-### Files Changed
-
-- `Cargo.toml`: Added binary target, dev dependencies (approx)
-- `src/lib.rs`: Exposed Phase 0.1 modules
-- `src/phase_0_1.rs`: NEW - Core gate implementation
-- `src/optimizer.rs`: NEW - AdamW optimizer
-- `src/trainer.rs`: NEW - Training infrastructure
-- `src/bin/train_gate.rs`: NEW - Test binary
-
-### Commands for Next Developer
-
-```bash
-# Run all unit tests
-cargo test --lib
-
-# Run specific test (e.g., gradient checking)
-cargo test test_numerical_gradients --lib -- --nocapture
-
-# Run training demo
-cargo run --bin train_gate --release
-
-# Run with verbose output (default)
-./target/release/train_gate
+├── trainer.rs          # Single gate trainer
+└── bin/
+    ├── train_gate.rs   # Phase 0.1 demo
+    ├── train_layer.rs  # Phase 0.2 demo
+    └── train_circuit.rs # Phase 0.3 demo
 ```
 
 ---
 
-## Phase 0.2: Gate Layer ✅ COMPLETE
+## QA Analysis: Architecture Deviation ⚠️ CRITICAL
 
 **Date**: 2026-01-01
-**Status**: ALL EXIT CRITERIA MET
-**Branch**: `claude/next-phase-implementation-fhSEi`
+**Reviewer**: Claude (QA session)
 
-### What Was Implemented
+### Problem Identified
 
-1. **GateLayer Struct** (`src/phase_0_2.rs`)
-   - Holds multiple independent `ProbabilisticGate`s
-   - Each gate maintains its own logits (no shared parameters)
-   - Supports batch execution: processes one input per gate in parallel
-   - Methods: `execute_soft()`, `execute_hard()`, `compute_gradients()`
+The current Phase 1.1 implementation has a **fundamental architectural mismatch** with the reference implementation, explaining the 81% accuracy ceiling.
 
-2. **LayerTruthTable** (`src/phase_0_2.rs`)
-   - Manages training data for multiple gates simultaneously
-   - Each gate gets its own target operation to learn
-   - Provides methods to fetch inputs/targets by example index
-   - Computes overall layer loss and per-gate hard accuracy
-
-3. **LayerTrainer** (`src/phase_0_2.rs`)
-   - One optimizer per gate (ensures gradient independence)
-   - Trains all gates in parallel on different operations
-   - Accumulates and averages gradients across training examples
-   - Supports same hyperparameters as single-gate trainer (LR=0.05, clipping=100.0)
-
-4. **Test Binary** (`src/bin/train_layer.rs`)
-   - Test 1: 3 gates learning AND, OR, XOR
-   - Test 2: 4 gates learning AND, OR, XOR, NAND
-   - Test 3: 8 gates learning 8 different operations
-   - All tests verify exit criteria automatically
-
-### Test Results
-
-**All 17 unit tests passing** (7 new for Phase 0.2):
-- Layer creation and initialization
-- Forward pass (soft and hard execution)
-- Gradient independence verification
-- Truth table generation for multiple operations
-- Loss computation for entire layer
-
-**Training convergence (Integration tests):**
-- **Test 1 (3 gates)**: Converged in 959 iterations
-  - AND: 97.14% probability, 100% accuracy
-  - OR: 97.14% probability, 100% accuracy
-  - XOR: 96.87% probability, 100% accuracy
-
-- **Test 2 (4 gates)**: Converged in 1,178 iterations
-  - AND: 97.43% probability, 100% accuracy
-  - OR: 97.43% probability, 100% accuracy
-  - XOR: 97.19% probability, 100% accuracy
-  - NAND: 96.99% probability, 100% accuracy
-
-- **Test 3 (8 gates)**: Converged in 1,127 iterations
-  - All 8 gates achieved 100% accuracy
-  - Probabilities ranged from 96.91% to 99.99%
-  - Pass-through gate A maintained 99.99% probability (validation of initialization)
-
-### Exit Criteria: ✅ ALL MET
-
-- ✅ Can learn arbitrary boolean function combinations (tested with 3, 4, and 8 gates)
-- ✅ No gradient interference between gates (each converged to its target operation)
-- ✅ Each gate independently converges to correct operation (100% accuracy across all gates)
-- ✅ Pass-through initialization works at scale (Gate 6 in Test 3 maintained A with 99.99%)
-- ✅ Convergence time scales reasonably with layer size (~1,000 iterations for up to 8 gates)
-
-### Key Technical Decisions
-
-1. **Independent Optimizers**:
-   - Each gate has its own AdamW optimizer instance
-   - Prevents any shared state between gates
-   - Guarantees gradient independence by design
-
-2. **One Input Per Gate**:
-   - Each gate processes its own (a, b) input pair
-   - Different from traditional neural network layers where all neurons see same input
-   - This is correct for our use case: training multiple independent operations
-
-3. **Batch Processing**:
-   - All 4 truth table examples processed before parameter update
-   - Gradients accumulated and averaged (same as Phase 0.1)
-   - Consistent with reference implementation's batch training
-
-4. **Exit Criteria Validation**:
-   - `meets_exit_criteria()` method checks all gates reached target operations
-   - Verifies both hard accuracy (>99%) and correct operation learned
-   - Automated validation prevents false positives
-
-### Important Learnings
-
-1. **Gradient Independence is Automatic**:
-   - With separate parameters and optimizers, no special handling needed
-   - Unit test `test_gradient_independence()` verifies this mathematically
-   - Design choice (independent gates) makes correctness obvious
-
-2. **Convergence Time Stays Constant**:
-   - 3 gates: 959 iterations
-   - 4 gates: 1,178 iterations
-   - 8 gates: 1,127 iterations
-   - No significant slowdown with more gates (good scalability)
-
-3. **Pass-Through Initialization Critical**:
-   - All gates start with A (pass-through) dominant
-   - Provides stable starting point for optimization
-   - Gate 6 learning A converges fastest (already initialized there)
-
-4. **XOR Still Hardest**:
-   - Even in layer setting, XOR shows slightly lower probability
-   - AND/OR consistently reach higher probabilities faster
-   - Consistent with Phase 0.1 findings
-
-### Code Organization
+### Reference Architecture (Game of Life)
 
 ```
-src/
-├── phase_0_1.rs         # Single gate (from Phase 0.1)
-├── phase_0_2.rs         # NEW - Gate layer
-├── optimizer.rs          # AdamW (reused)
-├── trainer.rs            # Single gate trainer (from Phase 0.1)
-├── bin/
-│   ├── train_gate.rs    # Single gate demo
-│   └── train_layer.rs   # NEW - Layer training demo
-└── lib.rs               # Updated exports
+┌─────────────────────────────────────────────────────────────┐
+│ PERCEPTION MODULE                                            │
+│ - 16 parallel kernels                                        │
+│ - Each kernel: [9→8→4→2→1] = 15 gates                       │
+│ - First layer: center vs each of 8 neighbors                │
+│ - Output: 16 feature bits                                    │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+              [center_cell, k1, k2, ..., k16] = 17 bits
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ UPDATE MODULE                                                │
+│ - 23 layers: [17→128]×16, then [64→32→16→8→4→2→1]          │
+│ - Connection topology: "unique" throughout                   │
+│ - Output: 1 bit (next cell state)                           │
+└─────────────────────────────────────────────────────────────┘
+
+TOTAL: 336 active gates
 ```
 
-### Files Changed
-
-- `src/phase_0_2.rs`: NEW - GateLayer, LayerTruthTable, LayerTrainer
-- `src/lib.rs`: Added Phase 0.2 exports
-- `src/bin/train_layer.rs`: NEW - Integration test binary
-- `Cargo.toml`: Added train_layer binary target
-
-### Commands for Next Developer
-
-```bash
-# Run all unit tests (17 tests)
-cargo test --lib
-
-# Run Phase 0.2 specific tests
-cargo test phase_0_2 --lib
-
-# Run integration test (trains 3, 4, and 8 gates)
-cargo run --bin train_layer --release
-
-# Expected output: All 3 tests pass with 100% accuracy
-```
-
-### Next Steps
-
-**Phase 0.3: Multi-Layer Circuits** - The next phase will stack gate layers to create deep circuits that can learn functions requiring compositional depth (e.g., learning XOR from combinations of AND/OR/NOT gates).
-
----
-
-## Phase 0.3: Multi-Layer Circuits ✅ COMPLETE
-
-**Date**: 2026-01-01
-**Status**: ALL EXIT CRITERIA MET
-**Branch**: `claude/update-claude-docs-BwxHg`
-
-### What Was Implemented
-
-1. **Circuit Struct** (`src/phase_0_3.rs`)
-   - Chains multiple layers of `ProbabilisticGate`s
-   - Configurable connection patterns between layers
-   - Supports arbitrary circuit topologies (paired, broadcast, custom)
-   - Forward pass through all layers (soft and hard modes)
-
-2. **ConnectionPattern** (`src/phase_0_3.rs`)
-   - Defines how outputs from layer N become inputs to layer N+1
-   - Each gate needs 2 inputs: (a_idx, b_idx) from previous layer
-   - Built-in patterns: paired, broadcast, custom
-
-3. **Backpropagation Through Layers** (`src/phase_0_3.rs`)
-   - Full chain rule implementation through multiple layers
-   - `compute_gradients()` propagates gradients backward
-   - Requires `op_input_gradients()` for all 16 binary operations
-   - Verified with numerical gradient checking (8 unit tests)
-
-4. **CircuitTrainer** (`src/phase_0_3.rs`)
-   - Independent optimizer per gate per layer
-   - Accumulates gradients across training examples
-   - Same hyperparameters as Phase 0.1/0.2 (LR=0.05, clipping=100.0)
-
-5. **Test Binary** (`src/bin/train_circuit.rs`)
-   - Test 1: 2-layer XOR
-   - Test 2: 2-layer XNOR
-   - Test 3: 3-layer XOR
-   - All tests verify exit criteria automatically
-
-### Test Results
-
-**All 25 unit tests passing** (8 new for Phase 0.3):
-- Circuit creation and initialization
-- Forward pass (soft and hard modes)
-- Connection patterns (paired, broadcast)
-- Numerical gradient checking through layers (critical test)
-- Operation input gradients for all 16 binary ops
-- XOR truth table generation
-
-**Training convergence (Integration tests):**
-- **Test 1 (2-layer XOR)**: Converged in 1,981 iterations
-  - Layer 0: G0=Xor (98.6%), G1=Xnor (99.9%)
-  - Layer 1: G0=A (80.4%, pass-through)
-  - 100% hard accuracy
-
-- **Test 2 (2-layer XNOR)**: Converged in 1,981 iterations
-  - Layer 0: G0=Xnor (98.6%), G1=Xor (99.9%)
-  - Layer 1: G0=A (80.4%, pass-through)
-  - 100% hard accuracy
-
-- **Test 3 (3-layer XOR)**: Converged in 2,138 iterations
-  - Layer 0: G0=Xor (98.9%), G1=Xnor (99.9%), G2=Xnor (99.9%), G3=A (67.4%)
-  - Layer 1: G0=A (88.9%), G1=A (100.0%)
-  - Layer 2: G0=A (78.1%)
-  - 100% hard accuracy
-
-### Exit Criteria: ✅ ALL MET
-
-- ✅ Learn 2-3 layer circuits reliably (all 3 tests passed with 100% accuracy)
-- ✅ Backpropagation works correctly through multiple layers (numerical gradient tests pass)
-- ✅ Can decompose complex operations into simpler primitives (XOR/XNOR learned)
-
-### Key Technical Decisions
-
-1. **Connection Patterns**:
-   - Abstracted into `ConnectionPattern` struct for flexibility
-   - Each gate in layer N+1 specifies which two outputs from layer N it takes
-   - Enables arbitrary circuit topologies
-
-2. **Backpropagation Implementation**:
-   - Gradients flow through connection pattern in reverse
-   - Required computing ∂op(a,b)/∂a and ∂op(a,b)/∂b for all 16 operations
-   - These derivatives are simple (e.g., AND: da=b, db=a)
-
-3. **Input Gradient Computation**:
-   - New function `op_input_gradients()` for each BinaryOp
-   - Verified against numerical gradients for correctness
-   - Critical for multi-layer backprop to work
-
-4. **Circuit Initialization**:
-   - All gates start with pass-through (A) dominant
-   - This provides stable starting point for optimization
-   - Interesting finding: circuits often keep pass-through in later layers
-
-### Important Learnings
-
-1. **Networks Find Shortcuts**:
-   - Expected: XOR = AND(OR, NAND) decomposition
-   - Actual: Network learns XOR directly in first layer
-   - Pass-through gates in layer 2 just forward the XOR output
-   - This is mathematically equivalent but not the expected solution
-
-2. **Deeper Networks Work But Aren't Necessary**:
-   - 3-layer network also learns XOR (2,138 vs 1,981 iterations)
-   - Extra layers mostly learn pass-through
-   - More parameters, similar convergence time
-
-3. **Gradient Flow Verified Numerically**:
-   - `test_numerical_gradients_through_circuit()` validates backprop
-   - Tests gradients for both layer 0 and layer 1 gates
-   - Gives high confidence in math correctness
-
-4. **XOR Can Be Learned Directly**:
-   - Single gate can learn XOR (Phase 0.1 showed this)
-   - Multi-layer circuits can still learn it but take different paths
-   - The "composite decomposition" expected wasn't necessary
-
-### Code Organization
+### Current Rust Implementation
 
 ```
-src/
-├── phase_0_1.rs         # Single gate (Phase 0.1)
-├── phase_0_2.rs         # Gate layer (Phase 0.2)
-├── phase_0_3.rs         # NEW - Multi-layer circuits
-├── optimizer.rs          # AdamW (reused)
-├── trainer.rs            # Single gate trainer (Phase 0.1)
-├── bin/
-│   ├── train_gate.rs    # Single gate demo
-│   ├── train_layer.rs   # Layer training demo
-│   └── train_circuit.rs # NEW - Circuit training demo
-└── lib.rs               # Updated exports
+┌─────────────────────────────────────────────────────────────┐
+│ DeepPerceptionKernel (single, doing everything)             │
+│ - 1 kernel (not 16)                                         │
+│ - Layers: [32→16→8→4→2→1] = 66 gates                       │
+│ - Directly predicts GoL (no update module)                  │
+│ - Center cell mixed into network                            │
+└─────────────────────────────────────────────────────────────┘
+
+TOTAL: 66 gates (vs 336 reference)
 ```
 
-### Files Changed
+### Key Differences
 
-- `CLAUDE.md`: NEW - Project README with instructions
-- `src/phase_0_3.rs`: NEW - Circuit, ConnectionPattern, CircuitTrainer
-- `src/lib.rs`: Added Phase 0.3 exports
-- `src/bin/train_circuit.rs`: NEW - Integration test binary
-- `Cargo.toml`: Added train_circuit binary target
+| Aspect | Reference | Current Rust |
+|--------|-----------|--------------|
+| Perception kernels | 16 parallel | 1 single |
+| Gates per kernel | ~15 | 66 (doing both jobs) |
+| Update module | 23 layers, 128+ gates | **MISSING** |
+| Total gates | 336 | 66 |
+| Center cell | Explicitly preserved & concatenated | Mixed into perception |
+| Architecture | Perception→features, Update→decision | Single network→decision |
 
-### Commands for Next Developer
+### Why 81% is the Ceiling
 
-```bash
-# Run all unit tests (25 tests)
-cargo test --lib
+1. **Insufficient capacity**: 66 gates vs 336 (5× fewer)
+2. **Missing separation of concerns**: Perception extracts features, update makes decisions
+3. **Center cell not preserved**: GoL rules depend on both center state AND neighbor count
+4. **No multi-kernel diversity**: 16 kernels learn different features; provides rich information to update module
 
-# Run Phase 0.3 specific tests
-cargo test phase_0_3 --lib
+### Recommended Fix
 
-# Run integration test (trains 2-layer and 3-layer circuits)
-cargo run --bin train_circuit --release
+1. **Phase 1.1 (perception)**: Implement 4-16 **parallel** kernels, each outputting 1 feature bit
+2. **Phase 1.2 (update)**: Implement update module taking `[center, k1, k2, ..., k16]` → next state
+3. **Increase capacity**: Update module needs 16+ layers with 128+ gates per layer
 
-# Expected output: All 3 tests pass with 100% accuracy
-```
+### Reference Implementation
 
-### Next Steps
-
-**Phase 1: Game of Life MVP** - The foundation is now complete. Phase 1 will implement:
-- Perception circuits (3x3 neighborhood → features)
-- Update module (perception outputs → next state)
-- Training on actual Game of Life patterns
-
----
-
----
-
-## Development Environment
-
-**Setup**: ✅ Verified working
-- Rust: 1.91.1
-- Cargo: 1.91.1
-- Platform: Linux 4.4.0
-- All dependencies install cleanly from crates.io
-
-**Testing Capabilities**:
-- ✅ Can compile and run Rust locally
-- ✅ Can run unit tests
-- ✅ Can run integration tests (binaries)
-- ✅ Can use `cargo test` and `cargo run`
-- ❌ No need for Docker/Podman - native testing works
-
----
-
-## Critical Success Factors (Applied in Phase 0.1 & 0.2)
-
-1. ✅ **Verification First**: All tests passing before moving forward
-2. ✅ **Minimal Viable Increments**: Single gate → layer → complete validation → next phase
-3. ✅ **Empirical Validation**: Numerical gradient checking validates theory
-4. ✅ **Fail Fast**: Test early, test often, don't accumulate bugs
-5. ✅ **Documentation as You Go**: This log written while code is fresh
-6. ✅ **Integration Tests**: Binary tests validate end-to-end workflows
-
----
-
-## Workflow Checklist for Future Phases
-
-Use this checklist for each new phase:
-
-- [ ] Read `claude/plan.md` for phase requirements
-- [ ] Create TodoWrite list with specific tasks
-- [ ] Write unit tests for core functionality
-- [ ] Implement core logic
-- [ ] Run `cargo test --lib` continuously
-- [ ] Create integration test binary if needed
-- [ ] Verify all exit criteria met
-- [ ] Update this `implementation-log.md`
-- [ ] Commit with detailed message explaining:
-  - What was implemented
-  - Key results/metrics
-  - Exit criteria status
-  - Technical decisions
-  - What's next
-- [ ] Push to branch
-- [ ] Create PR with summary
-
----
-
-## Common Patterns & Utilities
-
-### Testing Pattern
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use approx::assert_relative_eq;  // For float comparisons
-
-    #[test]
-    fn test_numerical_gradients() {
-        // 1. Set up test case
-        // 2. Compute analytical gradient
-        // 3. Compute numerical gradient (finite differences)
-        // 4. Compare with assert_relative_eq!
-    }
-}
-```
-
-### Training Pattern
-
-```rust
-// 1. Create data
-let truth_table = TruthTable::for_operation(BinaryOp::And);
-
-// 2. Create trainer
-let mut trainer = GateTrainer::new(0.05);  // LR from reference
-
-// 3. Train
-let result = trainer.train(&truth_table, max_iters, target_loss, verbose);
-
-// 4. Verify
-assert!(result.meets_exit_criteria(BinaryOp::And));
-```
-
-### Gradient Checking Pattern
-
-```rust
-let epsilon = 1e-5;
-for i in 0..num_params {
-    // Forward pass
-    params[i] += epsilon;
-    let loss_plus = compute_loss();
-
-    // Backward pass
-    params[i] -= 2.0 * epsilon;
-    let loss_minus = compute_loss();
-
-    // Numerical gradient
-    let numerical = (loss_plus - loss_minus) / (2.0 * epsilon);
-
-    // Compare
-    assert_relative_eq!(analytical[i], numerical, epsilon=1e-4);
-
-    // Restore
-    params[i] += epsilon;
-}
-```
-
----
-
-## Notes for Future Implementers
-
-### What Worked Well
-
-1. **Test-first development**: Writing tests before implementation caught bugs early
-2. **Numerical validation**: Gradient checking gave confidence in math
-3. **Small increments**: Single gate → fully working before adding complexity
-4. **Reference values**: Using paper's hyperparameters (LR, clipping) saved time
-5. **Clear exit criteria**: Knowing when phase is "done" prevents scope creep
-
-### What to Watch Out For
-
-1. **Truth table encoding**: Easy to get bit order wrong (see commit b7cf202 fixes)
-2. **Softmax numerical stability**: Always subtract max before exp
-3. **Gradient clipping**: Essential for training stability, don't skip
-4. **Convergence thresholds**: Loss <1e-4 more practical than <1e-6
-5. **XOR takes longer**: Don't assume all operations converge at same rate
-
-### Debugging Tips
-
-1. Print probability distributions during training
-2. Check that probabilities sum to 1.0
-3. Verify hard accuracy separately from soft loss
-4. Use `--nocapture` to see test output: `cargo test -- --nocapture`
-5. Compare outputs to reference implementation when possible
+A snapshot of the Python/JAX reference code is now available in `reference/difflogic_ca.py` for direct comparison.
 
 ---
 
 ## Phase 1.1: Perception Circuit - IN PROGRESS
 
 **Date**: 2026-01-01
-**Status**: EXIT CRITERIA NOT YET MET (81% accuracy, need 95%)
+**Status**: EXIT CRITERIA NOT MET (81% accuracy, need 95%)
 **Branch**: `claude/review-docs-update-claude-Xf4tl`
 
 ### What Was Implemented
 
-1. **Grid Type** (`src/phase_1_1.rs`)
-   - 2D binary cell grid with toroidal boundary conditions
-   - 3x3 neighborhood extraction with wrapping
-   - Neighborhood encoding as 9-bit index (512 configurations)
-
-2. **Neighborhood Type** (`src/phase_1_1.rs`)
-   - Value type for 3x3 neighborhoods
-   - Conversion to/from 9-bit index
-   - Game of Life next-state computation
-   - Neighbor counting
-
-3. **GolTruthTable** (`src/phase_1_1.rs`)
-   - All 512 neighborhood configurations
-   - Precomputed Game of Life next states
-   - 140 alive outcomes, 372 dead outcomes
-
-4. **PerceptionKernel** (`src/phase_1_1.rs`)
-   - Shallow kernel: 16 gates in layer 1, 25 total gates
-   - Configurable topologies (first_kernel, minimal)
-   - Soft and hard execution modes
-
-5. **DeepPerceptionKernel** (`src/phase_1_1.rs`)
-   - 6-layer architecture with 66 gates total
-   - Layer 1: 32 gates with comprehensive neighborhood coverage
-   - Subsequent layers: 16 → 8 → 4 → 2 → 1 gates
-   - Full backpropagation through all layers
-
-6. **Trainers** (`src/phase_1_1.rs`)
-   - PerceptionTrainer for shallow kernels
-   - DeepPerceptionTrainer for deep kernels
-   - AdamW optimizer (LR=0.05, gradient clipping=100.0)
-
-7. **Test Binary** (`src/bin/train_perception.rs`)
-   - Tests shallow and deep architectures
-   - Multiple learning rates and iteration counts
+1. **Grid** (`src/phase_1_1.rs`): 2D binary grid with toroidal boundaries
+2. **Neighborhood**: 3x3 extraction, 9-bit indexing, GoL next-state computation
+3. **GolTruthTable**: All 512 configurations with precomputed targets
+4. **PerceptionKernel**: 3-layer shallow kernel (~25 gates)
+5. **DeepPerceptionKernel**: 6-layer deep kernel (66 gates)
+6. **Trainers**: PerceptionTrainer, DeepPerceptionTrainer with backprop
 
 ### Test Results
 
-**All 35 unit tests passing** (7 new for Phase 1.1):
-- Grid creation, wrapping, neighborhood extraction
-- Neighborhood index conversion roundtrip
-- Game of Life rules verification
-- Perception topology and kernel creation
-- Numerical gradient checking for perception
+- **35 unit tests passing** (gradient checking verified)
+- **Shallow kernel**: 73.44% accuracy (plateaued)
+- **Deep kernel**: 80.86% accuracy (best achieved: 81.84%)
 
-**Training Results:**
-- **Shallow kernel (7 gates)**: 73.44% accuracy (plateaued)
-- **Full kernel (25 gates)**: 73.44% accuracy (plateaued)
-- **Deep kernel (66 gates)**: **80.86% accuracy** (best)
-  - Peak: 81.84% around iteration 9100
-  - Still improving slowly
-
-### Exit Criteria: ❌ NOT MET
+### Exit Criteria Status
 
 - ❌ >95% accuracy on 512 configurations (achieved 80.86%)
 - ✅ Training infrastructure works correctly
 - ✅ Gradients verified numerically
-- ✅ Deep architecture shows improvement over shallow
 
-### Key Technical Decisions
+### Next Steps for Phase 1.1
 
-1. **Toroidal Boundaries**:
-   - Grid wraps for edge cells
-   - Standard for CA implementations
+Based on QA analysis, the architecture needs correction:
 
-2. **Hierarchical Reduction**:
-   - Deep kernel uses sequential pairing
-   - Layer N+1 has half the gates of layer N
-   - Enables information aggregation
+1. **Option A**: Restructure Phase 1.1 to output features (not predictions)
+   - Change to 4-16 parallel kernels
+   - Each kernel outputs 1 bit
+   - Defer decision-making to Phase 1.2 (update module)
 
-3. **Connection Patterns**:
-   - Layer 1: Center vs neighbors, adjacent pairs, diagonals
-   - 32 connections covering all important relationships
+2. **Option B**: Massively increase capacity (not recommended)
+   - Would require 300+ gates in single network
+   - Still missing the right inductive bias
 
-### Important Learnings
+**Recommended**: Option A - Follow reference architecture
 
-1. **Shallow Networks Plateau Early**:
-   - ~73% accuracy regardless of iterations
-   - Insufficient depth for counting neighbors
-
-2. **Deep Networks Help But Aren't Enough**:
-   - 6 layers with 66 gates reaches ~81%
-   - Still below 95% target
-   - Need more expressive architecture
-
-3. **Game of Life is Hard**:
-   - Requires counting 8 neighbors
-   - Binary gates can only compare 2 values
-   - Need many gates to effectively count
-
-4. **Reference Uses More Capacity**:
-   - Reference implementation uses 128-512 hidden units
-   - Our 66 gates may not be enough
-
-### Code Organization
-
-```
-src/
-├── phase_0_1.rs         # Single gate (Phase 0.1)
-├── phase_0_2.rs         # Gate layer (Phase 0.2)
-├── phase_0_3.rs         # Multi-layer circuits (Phase 0.3)
-├── phase_1_1.rs         # NEW - Perception circuits
-├── optimizer.rs          # AdamW (reused)
-├── trainer.rs            # Single gate trainer (Phase 0.1)
-├── bin/
-│   ├── train_gate.rs    # Single gate demo
-│   ├── train_layer.rs   # Layer training demo
-│   ├── train_circuit.rs # Circuit training demo
-│   └── train_perception.rs # NEW - Perception training demo
-└── lib.rs               # Updated exports
-```
-
-### Files Changed
-
-- `CLAUDE.md`: Added instructions for creating claude/ folder
-- `src/phase_1_1.rs`: NEW - Grid, Neighborhood, GolTruthTable, kernels, trainers
-- `src/lib.rs`: Added Phase 1.1 exports
-- `src/bin/train_perception.rs`: NEW - Integration test binary
-- `Cargo.toml`: Added train_perception binary target
-
-### Commands for Next Developer
+### Commands
 
 ```bash
 # Run all unit tests (35 tests)
 cargo test --lib
 
-# Run Phase 1.1 specific tests
+# Run Phase 1.1 tests
 cargo test phase_1_1 --lib
 
 # Run perception training (takes ~5-10 minutes)
 cargo run --bin train_perception --release
 ```
 
-### Next Steps for Phase 1.1
+---
 
-To reach >95% accuracy:
+## Development Environment
 
-1. **Increase network capacity**:
-   - More gates per layer (match reference: 128-512)
-   - More parallel processing paths
-
-2. **Try different architectures**:
-   - Multiple parallel kernels instead of single deep one
-   - Wider layers instead of just deeper
-
-3. **Consider alternative approaches**:
-   - Multi-kernel perception (as in reference)
-   - Combine with update module earlier
+- **Rust**: 1.91.1
+- **Platform**: Linux 4.4.0
+- ✅ Native testing works (no Docker needed)
 
 ---
 
-## Next Steps
+## Workflow Checklist
 
-**Immediate**: Continue Phase 1.1 or move to Phase 1.2
+Use for each phase:
 
-Options:
-1. Increase network capacity to reach 95% accuracy on perception alone
-2. Move to Phase 1.2 (Update Circuit Integration) and combine perception + update
-   - This follows the reference architecture more closely
-   - Perception extracts features, update makes final prediction
+- [ ] Read `claude/plan.md` for phase requirements
+- [ ] Read this log for context and learnings
+- [ ] Create TodoWrite list with specific tasks
+- [ ] Write unit tests first
+- [ ] Implement core logic
+- [ ] Run `cargo test --lib` continuously
+- [ ] Create integration test binary if needed
+- [ ] Verify all exit criteria met
+- [ ] Update this log
+- [ ] Commit with detailed message
+- [ ] Push to branch, create PR
 
-**Phase 1 Components**:
-- 1.1: Perception Circuit - IN PROGRESS (81% accuracy)
-- 1.2: Update Circuit Integration (perception outputs + center cell → next state)
-- 1.3: Training Loop (MSE loss, Game of Life data generation)
-- 1.4: Multi-Step Rollout (test on gliders, blinkers, still lifes)
+---
 
-**Long-term**: Follow `claude/plan.md` through full library implementation
+## Common Patterns
+
+### Numerical Gradient Checking
+
+```rust
+let epsilon = 1e-5;
+for i in 0..num_params {
+    params[i] += epsilon;
+    let loss_plus = compute_loss();
+    params[i] -= 2.0 * epsilon;
+    let loss_minus = compute_loss();
+    params[i] += epsilon;  // restore
+
+    let numerical = (loss_plus - loss_minus) / (2.0 * epsilon);
+    assert_relative_eq!(analytical[i], numerical, epsilon=1e-4);
+}
+```
+
+### Training Pattern
+
+```rust
+let truth_table = TruthTable::for_operation(BinaryOp::And);
+let mut trainer = GateTrainer::new(0.05);
+let result = trainer.train(&truth_table, max_iters, target_loss, verbose);
+assert!(result.meets_exit_criteria(BinaryOp::And));
+```
 
 ---
 
 ## Questions for Later Phases
 
-These questions arose during Phases 0.1 and 0.2 and may need answers in future phases:
-
-1. How to handle larger batch sizes? (Currently training on all 4 examples)
+1. What's the optimal layer width for update module? (Reference: 128-512)
 2. Should we add learning rate scheduling?
-3. What's the optimal layer width for update module? (128-512 per reference)
-4. How to visualize gate probability evolution during training?
-5. Should we add early stopping based on hard accuracy plateau?
-6. How does layer size affect convergence time? (Phase 0.2 showed constant time)
-7. Can we parallelize gate training further? (Currently sequential parameter updates)
+3. How to visualize gate probability evolution?
+4. Can we parallelize gate training further?
 
 ---
 
 **Last Updated**: 2026-01-01
-**Current Phase**: 1.1 - Perception Circuit (IN PROGRESS)
-**Status**: 81% accuracy achieved, need 95% for exit criteria
+**Current Phase**: 1.1 - Perception Circuit (IN PROGRESS - needs architecture fix)
+**Status**: 81% accuracy; QA analysis recommends multi-kernel + update module approach
