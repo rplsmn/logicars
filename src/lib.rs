@@ -9,10 +9,14 @@ pub mod phase_0_1;
 pub mod optimizer;
 pub mod trainer;
 
+// Phase 0.2: Gate Layer
+pub mod phase_0_2;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
 pub use trainer::{GateTrainer, TrainingResult, TruthTable};
+pub use phase_0_2::{GateLayer, LayerTrainer, LayerTrainingResult, LayerTruthTable};
 
 // Old modules (from failed attempt - kept for reference)
 #[cfg(feature = "python")]
