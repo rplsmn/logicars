@@ -162,6 +162,8 @@ cargo run --bin train_layer --release
 
 This project implements differentiable logic gates for learning cellular automata rules (particularly Conway's Game of Life) based on the paper [Differentiable Logic Cellular Automata](https://google-research.github.io/self-organising-systems/difflogic-ca/).
 
+The `archive/` folder contains old, outdated implementations kept for documentation purposes only.
+
 ### Key Implementation Details
 
 - **Soft decoding**: `softmax(weights)` during training (differentiable)
