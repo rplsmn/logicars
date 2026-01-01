@@ -16,6 +16,10 @@ path = "src/bin/train_gate.rs"
 name = "train_layer"
 path = "src/bin/train_layer.rs"
 
+[[bin]]
+name = "train_circuit"
+path = "src/bin/train_circuit.rs"
+
 [dependencies]
 pyo3 = { version = "0.23.3", optional = true }
 rand = "0.9"
