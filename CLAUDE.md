@@ -115,6 +115,28 @@ Structure example:
 - **`implementation-log.md`** is institutional memory - it captures what worked, what didn't, and why decisions were made
 - Together they enable any developer (human or AI) to pick up the project and continue effectively
 
+#### Maintaining These Documents
+
+As the project progresses, these documents can become unwieldy. **Periodically review and compact them**:
+
+**For `implementation-log.md`:**
+- Completed phases can be summarized once stable (keep key learnings, remove verbose details)
+- Collapse multiple phase sections into summary tables when appropriate
+- Archive very old detailed logs to a separate `claude/archive/` folder if needed
+- The most recent 2-3 phases should remain detailed; older phases can be condensed
+
+**For `plan.md`:**
+- Remove or update phases that no longer apply due to architectural changes
+- Mark completed phases with ✅ and collapse their details
+- Update exit criteria if experience shows they were unrealistic or need adjustment
+- Remove speculative future phases that are no longer relevant
+
+**When to compact:**
+- When documents exceed ~500 lines and become hard to scan
+- When major architectural decisions invalidate earlier plans
+- When starting a new major phase (good time to archive the old)
+- When multiple sessions have added incremental updates that can be consolidated
+
 ## Quick Reference
 
 ### Build & Test Commands
