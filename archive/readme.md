@@ -12,6 +12,9 @@ This folder contains old and outdated implementations that are kept for document
 | `circuits.rs` | Original circuits implementation | 2025-03-18 |
 | `python_bindings.rs` | Python bindings (PyO3) | 2025-03-18 |
 | `logic_gates.rs` | Original logic gates implementation | 2025-03-18 |
+| `pyproject.toml` | Python project configuration | 2025-03-12 |
+| `loss_evolution.png` | Training loss visualization | 2025-03-16 |
+| `train_optimized.py` | Python training script | 2025-03-16 |
 
 ## Why Archived?
 
