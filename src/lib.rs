@@ -30,6 +30,9 @@ pub mod update;
 // Phase 1.4: Training Loop
 pub mod training;
 
+// Phase 2.1: Checkerboard
+pub mod checkerboard;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
@@ -58,6 +61,22 @@ pub use training::{
     SimpleRng,
     FIRE_RATE,
     GRADIENT_CLIP,
+};
+pub use checkerboard::{
+    create_checkerboard,
+    create_random_seed,
+    create_checkerboard_perception,
+    create_checkerboard_update,
+    create_checkerboard_model,
+    create_small_checkerboard_model,
+    compute_checkerboard_loss,
+    compute_checkerboard_accuracy,
+    CHECKERBOARD_CHANNELS,
+    CHECKERBOARD_KERNELS,
+    CHECKERBOARD_GRID_SIZE,
+    CHECKERBOARD_SQUARE_SIZE,
+    CHECKERBOARD_SYNC_STEPS,
+    CHECKERBOARD_ASYNC_STEPS,
 };
 
 // Old modules (from failed attempt - kept for reference)
