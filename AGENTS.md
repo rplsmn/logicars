@@ -6,6 +6,7 @@
 
 1. **`agents/plan.md`** - Full development roadmap and phase requirements
 2. **`agents/implementation-log.md`** - Implementation history, learnings, and what's next
+3. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers (read this first!)
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
