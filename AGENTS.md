@@ -186,7 +186,34 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 6. Create integration test binary if needed
 7. Verify all exit criteria met
 8. Update `agents/implementation-log.md`
-9. Commit with detailed message
-10. Push to branch and create PR
+9. **Ask for greenlight** before committing
+10. Commit with detailed message
+11. Push to branch and create PR
 
-use the gh cli utility to manage interactions with Github
+### Long-Running Tasks
+
+For any task projected to take **over 60 seconds** (e.g., full model training, large test suites):
+
+1. **Do NOT run it yourself** - it will timeout or block progress
+2. **Provide the command** to the human with clear instructions
+3. **Wait for feedback** - the human will run it and report results
+4. **Continue based on results** - adjust approach if needed
+
+Example:
+```
+This training will take ~30 minutes. Please run:
+
+    cargo run --bin train_gol --release
+
+And let me know the final accuracy achieved.
+```
+
+### Completion Protocol
+
+After a step/phase is successful:
+
+1. **Ask for greenlight**: "Ready to commit. Proceed?"
+2. **If yes**: Commit, push to new branch, and open PR
+3. **If no**: Wait for additional instructions
+
+Use the gh cli utility to manage interactions with Github
