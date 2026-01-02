@@ -110,7 +110,7 @@ Output: C bits (next cell state)
 - Backprop through full perception→update chain
 - Works for GoL config: [17→128×10→64→...→1]
 
-### 1.4 Training Loop (MSE Loss) ⬅️ CURRENT
+### 1.4 Training Loop (MSE Loss) ✅ COMPLETE
 
 **Requirements**:
 - `loss = sum((predicted - target)²)` per cell per channel
@@ -118,11 +118,11 @@ Output: C bits (next cell state)
 - Support sync and async training modes
 - Fire rate masking for async (0.6)
 
-**Exit criteria**:
-- Loss decreases on random data
-- Matches reference loss computation
+**Exit criteria**: ✅ ALL MET
+- ✅ Loss decreases on random data
+- ✅ Matches reference loss computation
 
-### 1.5 GoL Validation (C=1)
+### 1.5 GoL Validation (C=1) ⬅️ CURRENT
 
 **This is the real test**: Does the N-bit architecture work for the simplest case?
 

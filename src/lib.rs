@@ -27,6 +27,9 @@ pub mod perception;
 // Phase 1.3: Update Module
 pub mod update;
 
+// Phase 1.4: Training Loop
+pub mod training;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
@@ -48,6 +51,13 @@ pub use update::{
     UpdateTrainer,
     DiffLogicCA,
     DiffLogicCATrainer,
+};
+pub use training::{
+    TrainingConfig,
+    TrainingLoop,
+    SimpleRng,
+    FIRE_RATE,
+    GRADIENT_CLIP,
 };
 
 // Old modules (from failed attempt - kept for reference)

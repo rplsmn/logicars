@@ -557,13 +557,105 @@ cargo test gol_architecture --lib
 
 ---
 
-## Next Steps
+## Phase 1.4: Training Loop ✅ COMPLETE
 
-**Phase 1.4: Training Loop (MSE Loss)** - Complete training infrastructure:
-- Support sync and async training modes
-- Fire rate masking for async (0.6)
-- Grid-level training with all cell updates
-- Match reference loss computation
+**Date**: 2026-01-02
+**Status**: ALL EXIT CRITERIA MET
+
+### What Was Implemented
+
+Created `src/training.rs` with full training infrastructure:
+
+1. **TrainingConfig**: Configuration matching reference hyperparameters
+   - Learning rate (default: 0.05)
+   - Gradient clipping (100.0)
+   - Sync/async training modes
+   - Fire rate masking (0.6) for async
+   - Multi-step rollout support
+
+2. **TrainingLoop**: Grid-level training
+   - `step_sync()`: All cells update simultaneously (sync mode)
+   - `step_async()`: Fire rate masking (async mode)
+   - `run_steps()`: Multi-step rollout
+   - `train_step()`: Full training iteration with backprop
+   - `compute_loss()`: MSE loss matching reference (`sum((pred - target)²)`)
+   - `evaluate_accuracy()`: Hard accuracy evaluation
+
+3. **SimpleRng**: Deterministic RNG for reproducible async training
+
+### Test Results
+
+```
+running 106 tests (18 new for training module)
+test result: ok. 106 passed; 0 failed
+```
+
+New tests cover:
+- Config creation (default, GoL, Checkerboard sync/async)
+- RNG determinism and probability distribution
+- Loss computation (identical, different grids)
+- Step execution (sync and async)
+- Training loss decrease
+- Multi-channel support (C=8)
+- Accuracy evaluation
+
+### Exit Criteria: ✅ ALL MET
+
+- ✅ Loss decreases on random data (test_train_step_loss_decreases)
+- ✅ Matches reference loss computation (`sum((pred - target)²)`)
+- ✅ Sync training mode works
+- ✅ Async training mode with fire rate masking works
+- ✅ Multi-step rollout support
+- ✅ All 106 tests pass
+
+### Key Technical Decisions
+
+1. **SimpleRng**: Custom xorshift64 for deterministic async training
+2. **GridActivations struct**: Stores all intermediate values for backprop
+3. **Gradient accumulation**: Average over cells and channels before update
+4. **Separate soft/hard loss**: Returns both for monitoring (matching reference)
+
+### Architecture Match with Reference
+
+```
+Reference Python:                    Rust Implementation:
+───────────────────────────────────────────────────────────────
+loss_f()                      →      TrainingLoop::compute_loss()
+train_step()                  →      TrainingLoop::train_step()
+run_sync()                    →      TrainingLoop::step_sync()
+run_async()                   →      TrainingLoop::step_async()
+run_iter_nca()                →      TrainingLoop::run_steps()
+FIRE_RATE = 0.6               →      FIRE_RATE = 0.6
+gradient_clip(100.0)          →      gradient_clip: 100.0
+```
+
+### Code Organization
+
+```
+src/
+├── training.rs          # NEW: TrainingLoop, TrainingConfig, SimpleRng
+├── update.rs            # UpdateModule, DiffLogicCA
+├── perception.rs        # PerceptionModule, PerceptionKernel
+├── grid.rs              # NGrid, NNeighborhood
+└── lib.rs               # Updated exports
+```
+
+### Commands for Next Developer
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run training tests only
+cargo test training --lib
+
+# Verify loss computation
+cargo test compute_loss --lib
+```
+
+---
+
+## Next Steps
 
 **Phase 1.5: GoL Validation** - Train and validate on Game of Life:
 - Train with all 512 neighborhood configurations
@@ -573,5 +665,5 @@ cargo test gol_architecture --lib
 ---
 
 **Last Updated**: 2026-01-02
-**Current Phase**: 1.3 ✅ COMPLETE → Ready for 1.4 (Training Loop)
-**Status**: Update module implemented with 88 tests passing
+**Current Phase**: 1.4 ✅ COMPLETE → Ready for 1.5 (GoL Validation)
+**Status**: Training loop implemented with 106 tests passing
