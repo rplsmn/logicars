@@ -268,12 +268,96 @@ assert!(result.meets_exit_criteria(BinaryOp::And));
 - `reference/README.md` rewritten: Full documentation of all experiments
 - Created `claude/qa-review-1.md`: Detailed findings and rationale
 
-**Next step**: Implement N-bit Grid (Phase 1.1) before continuing with perception/update modules.
-
 See `claude/qa-review-1.md` for full details.
 
 ---
 
+## Phase 1.1: N-bit Grid Implementation ✅ COMPLETE
+
+**Date**: 2026-01-02
+**Status**: ALL EXIT CRITERIA MET
+
+### What Was Implemented
+
+Created `src/grid.rs` with N-bit capable grid and neighborhood types:
+
+1. **`NGrid`** - Multi-channel grid with runtime channel count (1-128)
+   - Supports both periodic (toroidal) and non-periodic (clamped) boundaries
+   - Soft (f64) representation for training, with `to_hard()` for inference
+   - Channel-aware storage: `Vec<f64>` with length = width × height × channels
+   - Full compatibility helpers for GoL (C=1): `from_bool_grid()`, `to_bool_grid()`
+
+2. **`NNeighborhood`** - 3×3 neighborhood extraction with 9C values
+   - Flat storage: [NW_ch0..NW_chC, N_ch0..N_chC, ..., SE_ch0..SE_chC]
+   - Position-based and channel-based accessors
+   - GoL helpers: `from_gol_index()`, `to_gol_index()`, `gol_next_state()`
+
+3. **`BoundaryCondition`** enum - Periodic vs NonPeriodic
+
+### Test Results
+
+```
+running 60 tests (25 new for grid module)
+test result: ok. 60 passed; 0 failed
+```
+
+New tests cover:
+- C=1: 8 tests (GoL validation, wrapping, indexing)
+- C=8: 4 tests (Checkerboard, multi-channel access, non-periodic)
+- C=64: 3 tests (Colored G)
+- C=128: 4 tests (Growing Lizard, large grids)
+- Edge cases: 6 tests (minimal grid, 2×2 wrapping, invalid channels)
+
+### Exit Criteria: ✅ ALL MET
+
+- ✅ Unit tests for C=1, C=8, C=64, C=128
+- ✅ Neighborhood extraction works for all channel counts
+- ✅ Periodic and non-periodic boundaries implemented
+- ✅ Backward compatibility with GoL (C=1) via helper methods
+- ✅ All 60 tests pass
+
+### Key Technical Decisions
+
+1. **Dynamic channels (runtime)** over const generics for flexibility across experiments
+2. **Flat Vec<f64> storage** for efficient memory layout and easy indexing
+3. **Separate module** (`grid.rs`) rather than modifying `phase_1_1.rs` - old Grid coexists for transition
+4. **Soft-first representation** - store f64, convert to hard/bool as needed
+
+### Code Organization
+
+```
+src/
+├── grid.rs              # NEW: NGrid, NNeighborhood, BoundaryCondition
+├── phase_1_1.rs         # OLD: Grid (Vec<bool>), Neighborhood, GoL training
+└── lib.rs               # Updated exports
+```
+
+### Commands for Next Developer
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run only grid tests
+cargo test grid --lib
+
+# Verify specific channel counts
+cargo test c128 --lib
+cargo test c64 --lib
+```
+
+---
+
+## Next Steps
+
+**Phase 1.2: Perception Module** - Implement parallel perception kernels using NGrid:
+- 4-16 parallel kernels, each outputting feature bits
+- Use `NNeighborhood` as input (9C values)
+- Output: concatenation of center cell + kernel outputs
+- Match reference architecture exactly
+
+---
+
 **Last Updated**: 2026-01-02
-**Current Phase**: 1.1 - N-bit Grid and Neighborhood (need to refactor from `Vec<bool>` to `Grid<C>`)
-**Status**: Documentation complete; code refactor pending
+**Current Phase**: 1.1 ✅ COMPLETE → Ready for 1.2 (Perception Module)
+**Status**: N-bit Grid implemented with 25 tests passing
