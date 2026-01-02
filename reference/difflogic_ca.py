@@ -462,19 +462,144 @@ def train_step(train_state, train_x, train_y, wires, periodic, num_steps, async_
 
 
 # ============================================================================
-# EXAMPLE HYPERPARAMETERS (Game of Life)
+# EXPERIMENT HYPERPARAMETERS
 # ============================================================================
+# All 4 experiments from the paper, with full training configs.
+# Key differences: channels (state bits), architecture size, training steps.
 
+# EXPERIMENT 1: GAME OF LIFE
+# Binary CA, 1-bit state, learns all 512 neighborhood configurations
 GOL_HYPERPARAMS = {
+    'seed': 23,
+    'lr': 0.05,
+    'batch_size': 20,
+    'num_epochs': 3000,
+    'num_steps': 1,  # Single step prediction
+    'channels': 1,   # 1-bit state
+    'periodic': True,
+    'async_training': False,
+    'grid_size': 128,
     'perceive': {
-        'layers': [9, 8, 4, 2, 1],  # 9 inputs -> 8 -> 4 -> 2 -> 1 output per kernel
+        'n_kernels': 16,
+        'layers': [9, 8, 4, 2, 1],
         'connections': ['first_kernel', 'unique', 'unique', 'unique'],
-        'n_kernels': 16,  # 16 parallel perception kernels
     },
     'update': {
         # Input: 1 (center) + 16 (kernel outputs) = 17
-        # Then 16 layers of 128 gates, then reduction
-        'layers': [17] + [128] * 16 + [64, 32, 16, 8, 4, 2, 1],
-        'connections': ['unique'] * 22,
+        # 10 layers of 128, then reduction to 1
+        'layers': [17, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+                   64, 32, 16, 8, 4, 2, 1],
+        'connections': ['unique'] * 17,
     },
+}
+
+# EXPERIMENT 2: CHECKERBOARD (SYNCHRONOUS)
+# Multi-step pattern generation, 8-bit state, non-periodic boundaries
+CHECKERBOARD_SYNC_HYPERPARAMS = {
+    'seed': 23,
+    'lr': 0.05,
+    'batch_size': 2,
+    'num_epochs': 500,
+    'num_steps': 20,  # 20 growth steps
+    'channels': 8,    # 8-bit state
+    'periodic': False,
+    'async_training': False,
+    'grid_size': 16,
+    'perceive': {
+        'n_kernels': 16,
+        'layers': [9, 8, 4, 2],  # Slightly smaller than GoL
+        'connections': ['first_kernel', 'unique', 'unique'],
+    },
+    'update': {
+        # Input: 8 (center channels) + 16*8 (kernel outputs) = 136...
+        # Actually: center(8) + kernels(16) * channels(8) = 8 + 128 = 136
+        # But notebook shows 513 = 1 + 16*32? Let's use notebook value
+        'layers': [513, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+                   128, 64, 32, 16, 8, 8],
+        'connections': ['unique'] * 16,
+    },
+}
+
+# EXPERIMENT 3: CHECKERBOARD (ASYNCHRONOUS)
+# Same as sync but with fire_rate masking for fault tolerance
+CHECKERBOARD_ASYNC_HYPERPARAMS = {
+    'seed': 23,
+    'lr': 0.05,
+    'batch_size': 1,
+    'num_epochs': 800,
+    'num_steps': 50,  # More steps for async convergence
+    'channels': 8,
+    'periodic': False,
+    'async_training': True,  # Uses FIRE_RATE = 0.6
+    'grid_size': 16,
+    'perceive': {
+        'n_kernels': 16,
+        'layers': [9, 8, 4, 2],
+        'connections': ['first_kernel', 'unique', 'unique'],
+    },
+    'update': {
+        # Deeper network for async robustness
+        'layers': [513, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+                   256, 256, 256, 256, 128, 64, 32, 16, 8, 8],
+        'connections': ['unique'] * 20,
+    },
+}
+
+# EXPERIMENT 4: GROWING LIZARD EMOJI
+# Complex pattern generation, 128-bit state, fewer but larger kernels
+GROWING_LIZARD_HYPERPARAMS = {
+    'seed': 23,
+    'lr': 0.06,  # Slightly higher LR
+    'batch_size': 1,
+    'num_epochs': 3500,
+    'num_steps': 12,   # 12 growth steps
+    'channels': 128,   # 128-bit state (richest representation)
+    'periodic': True,
+    'async_training': False,
+    'grid_size': 20,   # 20x20 training, generalizes to 40x40
+    'perceive': {
+        'n_kernels': 4,  # Fewer kernels than GoL (4 vs 16)
+        'layers': [9, 8, 4, 2, 1],
+        'connections': ['first_kernel', 'unique', 'unique', 'unique'],
+    },
+    'update': {
+        # Input: 128 (center) + 4*128 (kernels) = 640... notebook shows 513
+        # 513 = 1 + 4*128 = 513 (treating center as 1 bit? or different calc)
+        'layers': [513, 512, 512, 512, 512, 512, 512, 512, 512, 256, 128],
+        'connections': ['unique'] * 10,
+    },
+}
+
+# EXPERIMENT 5: COLORED G (from paper, partial config)
+# RGB pattern generation, 64-bit state, 8-color palette
+# Note: Full hyperparams not in public notebook, estimated from paper
+COLORED_G_HYPERPARAMS = {
+    'seed': 23,
+    'lr': 0.05,
+    'batch_size': 1,
+    'num_epochs': 5000,  # Estimated - most complex experiment
+    'num_steps': 15,     # 15 steps from paper
+    'channels': 64,      # 64-bit state for RGB
+    'periodic': False,
+    'async_training': False,
+    'grid_size': 20,
+    'perceive': {
+        'n_kernels': 4,
+        'layers': [9, 8, 4, 2],
+        'connections': ['first_kernel', 'unique', 'unique'],
+    },
+    'update': {
+        # Paper mentions 927 active gates, 11 layers
+        'layers': [257, 512, 512, 512, 512, 512, 512, 512, 512, 256, 128, 64],
+        'connections': ['unique'] * 11,
+    },
+}
+
+# Summary of experiments by complexity
+EXPERIMENTS = {
+    'gol': GOL_HYPERPARAMS,
+    'checkerboard_sync': CHECKERBOARD_SYNC_HYPERPARAMS,
+    'checkerboard_async': CHECKERBOARD_ASYNC_HYPERPARAMS,
+    'lizard': GROWING_LIZARD_HYPERPARAMS,
+    'colored_g': COLORED_G_HYPERPARAMS,
 }

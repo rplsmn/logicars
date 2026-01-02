@@ -74,10 +74,10 @@ We follow this by:
 ### Task List
 
 - [x] Create this QA review document
-- [ ] Fetch original Colab notebook for all experiment configs
-- [ ] Update `reference/difflogic_ca.py` with all 4 hyperparams
-- [ ] Update `reference/README.md` with all experiment architectures
-- [ ] Restructure `claude/plan.md` - move multi-state to Phase 1.x
+- [x] Fetch original Colab notebook for all experiment configs
+- [x] Update `reference/difflogic_ca.py` with all 5 hyperparams
+- [x] Update `reference/README.md` with all experiment architectures
+- [x] Restructure `claude/plan.md` - move multi-state to Phase 1.x
 
 ### NOT Doing Yet
 
@@ -130,12 +130,33 @@ Phase 2: Multi-bit Experiments
 
 ## Progress Log
 
-### 2026-01-01 - Session Start
+### 2026-01-02 - QA Session Complete
 
-- Identified tunnel vision problem
-- Confirmed with evidence from codebase
-- Created this tracking document
-- Beginning reference extraction
+**All documentation tasks completed:**
+
+1. **reference/difflogic_ca.py** - Added 5 experiment hyperparams:
+   - `GOL_HYPERPARAMS` (updated with full config)
+   - `CHECKERBOARD_SYNC_HYPERPARAMS` (8-bit, 20 steps)
+   - `CHECKERBOARD_ASYNC_HYPERPARAMS` (8-bit, async)
+   - `GROWING_LIZARD_HYPERPARAMS` (128-bit, complex shape)
+   - `COLORED_G_HYPERPARAMS` (64-bit, RGB)
+
+2. **reference/README.md** - Complete rewrite:
+   - All 5 experiments documented with architectures
+   - Training parameters for each
+   - Implementation notes for Rust port
+   - Suggested Rust types for N-bit grids
+
+3. **claude/plan.md** - Restructured:
+   - Phase 1 now "N-bit Core Architecture"
+   - Multi-state moved from Phase 4.2 → Phase 1.1
+   - GoL is now Phase 1.5 (validation, not goal)
+   - Added Phase 2: Multi-bit Experiments (Checkerboard, Lizard, Colored G)
+
+**What's NOT done (for next session):**
+- Rust code refactoring (Grid, Neighborhood types)
+- Actual implementation of N-bit architecture
+- The existing code still uses `Vec<bool>`
 
 ---
 

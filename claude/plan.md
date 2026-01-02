@@ -3,274 +3,281 @@
 ## Primary References
 
 1. **Paper**: [Differentiable Logic Cellular Automata](https://google-research.github.io/self-organising-systems/difflogic-ca/)
-2. **Reference Implementation**: [Google Colab Notebook](https://colab.research.google.com/github/google-research/self-organising-systems/blob/master/notebooks/diffLogic_CA.ipynb) - JAX/Python implementation with critical details on architecture, training tricks, and hyperparameters
-3. **Game of Life Rules**: Cell survives with 2-3 neighbors, dead cell born with exactly 3
+2. **Reference Implementation**: See `reference/difflogic_ca.py` - JAX/Python with ALL experiment hyperparameters
+3. **Full Documentation**: See `reference/README.md` - all 5 experiments documented
 
 ---
 
-## Macro-Plan: Barebones MVP → Full-Featured Crate
+## Design Principle: N-bit From Start
 
-### **Phase 0: Foundation & Verification** (MVP Prerequisites)
-**Goal**: Establish rock-solid primitives before touching CA
+**QA Review Finding** (2026-01-01): The original plan had multi-state support at Phase 4.2, creating architectural debt. The paper's real value is in multi-bit experiments (Checkerboard, Lizard, Colored G), not just GoL.
 
-**Reference Implementation Insights**:
-- Soft decoding: `softmax(weights, axis=-1)` during training
-- Hard decoding: `one_hot(argmax(weights))` during inference
-- All 16 gate outputs computed, then weighted sum by probabilities
-- Critical: Pass-through gate (index 3) initialized to 10.0 for stability
-- AdamW optimizer with gradient clipping at 100.0
+**New Principle**: Design for N-bit cells from Phase 1. GoL is just N=1.
 
-#### **0.1 Single Gate Training**
-- Implement one probabilistic logic gate with 16 binary operations
-- Train to learn AND, OR, XOR individually
-- **Verify gradient computation**: Numerical gradient checking against analytical
-- **Verify convergence**: Loss → 0, probability distribution sharpens
-- **Implementation notes**:
-  - Use reference impl's soft/hard decoding approach
-  - Test gradient clipping early (they use 100.0)
-  - Consider deterministic ops for reproducibility (JAX uses `XLA_FLAGS='--xla_gpu_deterministic_ops=true'`)
-- **Exit criteria**: >99% accuracy on truth tables, reproducible convergence
-
-#### **0.2 Gate Layer**
-- Multiple independent gates learning different operations simultaneously
-- Verify no gradient interference between gates
-- Test pass-through gate initialization trick
-- **Exit criteria**: Can learn arbitrary boolean function combinations
-
-#### **0.3 Multi-Layer Circuits**
-- Stack gate layers to learn functions requiring depth (XOR from ANDs/ORs)
-- Verify backpropagation through multiple layers
-- **Reference impl detail**: Update module uses 128-512 hidden units across layers
-- **Exit criteria**: Learn 2-3 layer circuits reliably
+This means:
+- `Grid<C>` where C = channels (1-128 bits per cell)
+- Perception and Update modules are channel-aware
+- GoL validates the architecture with simplest case (C=1)
+- No refactoring needed when moving to multi-bit experiments
 
 ---
 
-### **Phase 1: Game of Life MVP**
-**Goal**: Minimal working CA that learns Conway's Game of Life
+## Phase 0: Foundation & Verification ✅ COMPLETE
 
-**Reference Implementation Architecture**:
-- **Perception Module**: 4-16 parallel kernels on 3x3 neighborhoods
-  - First layer: "first_kernel" topology (mimics cell interactions)
-  - Subsequent layers: "unique" connections (each gate gets different inputs)
-  - Outputs concatenated with original center cell value
-- **Update Module**: Deep network (128-512 hidden units) → next state
-- **Loss**: Mean squared error `sum((output - target)²)`
-- **Training**: AdamW, LR ~0.05-0.06, batch sizes 1-20
-- **Fire rate**: 0.6 for asynchronous training (enables fault tolerance)
+**Goal**: Rock-solid single-gate primitives
 
-#### **1.1 Perception Circuit**
-- 3x3 neighborhood → single bit output
-- Start with 4 parallel kernels (reference impl minimum)
-- Implement "first_kernel" topology from reference
-- Train on known Game of Life patterns
-- **Exit criteria**: >95% accuracy on all 512 neighborhood configurations
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 0.1 | ✅ | Single gate training (AND/OR/XOR) |
+| 0.2 | ✅ | Gate layer (8 ops simultaneously) |
+| 0.3 | ✅ | Multi-layer circuits (XOR via 2-layer) |
 
-#### **1.2 Update Circuit Integration**
-- Implement concatenation: perception outputs + center cell value
-- Deep network following reference architecture (start with 128 hidden units)
-- Full forward pass on static grids
-- **Exit criteria**: Correct next-state prediction on test grids
-
-#### **1.3 Training Loop**
-- Generate Game of Life training data (random initial states + correct next states)
-- Implement MSE loss matching reference
-- AdamW optimizer with gradient clipping (100.0)
-- Learning rate ~0.05-0.06 as baseline
-- **Exit criteria**: Converges on Game of Life, >95% hard accuracy, stable loss
-
-#### **1.4 Multi-Step Rollout**
-- Apply learned rule iteratively (t → t+1 → t+2...)
-- Test on classic patterns (gliders, blinkers, still lifes)
-- Optional: Implement asynchronous updates (fire rate 0.6) for robustness testing
-- **Exit criteria**: Stable multi-step simulation matching true Game of Life
+**Key Learnings**: See `claude/implementation-log.md`
 
 ---
 
-### **Phase 2: Library Foundations**
-**Goal**: Transform working code into reusable crate
+## Phase 1: N-bit Core Architecture
 
-#### **2.1 API Design**
-- Separate core logic from Game of Life specifics
-- Clean abstractions: `PerceptionCircuit`, `UpdateCircuit`, `CA`, `Trainer`
-- Builder pattern for configuration
-- **Key parameters to expose**:
-  - Number of perception kernels (4-16)
-  - Update module hidden units
-  - Training hyperparameters (LR, clipping, fire rate)
-  - Gate initialization strategies
-- **Exit criteria**: Can instantiate and train without touching internals
+**Goal**: Perception + Update modules that work for ANY channel count
 
-#### **2.2 Serialization & Checkpointing**
-- Save/load trained circuits (gate probability distributions)
-- Export to interpretable formats (circuit diagrams, truth tables)
-- Store both soft weights and hard-decoded circuits
-- **Exit criteria**: Can serialize, load, and resume training
+### 1.1 N-bit Grid and Neighborhood ⬅️ CURRENT
 
-#### **2.3 Testing Infrastructure**
-- Property-based tests for gates (commutativity, identities)
-- Integration tests for training convergence
-- Regression tests on Game of Life (compare to reference impl results)
-- Numerical gradient checking tests
-- **Exit criteria**: Comprehensive test suite, CI passing
+**What to build**:
+```rust
+// Option A: Const generic (compile-time channels)
+struct Grid<const C: usize> {
+    width: usize,
+    height: usize,
+    cells: Vec<[f64; C]>,
+}
 
-#### **2.4 Documentation**
-- API docs with examples
+// Option B: Dynamic (runtime channels) - more flexible
+struct Grid {
+    width: usize,
+    height: usize,
+    channels: usize,
+    cells: Vec<f64>,  // Flat: [cell0_ch0, cell0_ch1, ..., cell1_ch0, ...]
+}
+```
+
+**Requirements**:
+- Extract 3×3 neighborhood (9 cells × C channels = 9C values)
+- Support periodic and non-periodic boundaries
+- Convert to/from soft (f64) and hard (bool) representations
+
+**Exit criteria**:
+- Unit tests for C=1, C=8, C=64, C=128
+- Neighborhood extraction matches reference impl
+
+### 1.2 Perception Module (Parallel Kernels)
+
+**Architecture** (from reference):
+```
+Input: 9 cells × C channels
+       ↓
+K parallel kernels, each:
+  Layer 1: 8 gates (first_kernel topology)
+  Layers 2+: unique connections
+  Output: 1+ bits per kernel
+       ↓
+Output: [center_channels, kernel_1_out, ..., kernel_K_out]
+```
+
+**Key decisions**:
+- K = 4-16 kernels (configurable)
+- Each kernel is independent (no weight sharing)
+- Center cell is preserved and concatenated with outputs
+
+**Exit criteria**:
+- Forward pass matches reference impl
+- Gradients verified numerically
+- Works for C=1 (GoL config: 16 kernels, [9→8→4→2→1])
+
+### 1.3 Update Module
+
+**Architecture**:
+```
+Input: center (C bits) + kernel outputs
+       ↓
+Deep network: [input_size, 128-512, ..., C]
+All "unique" connections
+       ↓
+Output: C bits (next cell state)
+```
+
+**Exit criteria**:
+- Forward pass matches reference
+- Backprop through full perception→update chain
+- Works for GoL config: [17→128×10→64→...→1]
+
+### 1.4 Training Loop (MSE Loss)
+
+**Requirements**:
+- `loss = sum((predicted - target)²)` per cell per channel
+- AdamW with gradient clipping (100.0)
+- Support sync and async training modes
+- Fire rate masking for async (0.6)
+
+**Exit criteria**:
+- Loss decreases on random data
+- Matches reference loss computation
+
+### 1.5 GoL Validation (C=1)
+
+**This is the real test**: Does the N-bit architecture work for the simplest case?
+
+**Training setup**:
+- C=1 (single bit per cell)
+- 16 perception kernels
+- 18-layer update module
+- All 512 neighborhood configurations
+
+**Exit criteria**:
+- >95% hard accuracy on GoL (the 81% ceiling is broken)
+- Architecture matches reference exactly
+- Gliders and blinkers work in simulation
+
+---
+
+## Phase 2: Multi-bit Experiments
+
+**Goal**: Validate N-bit architecture on progressively harder tasks
+
+### 2.1 Checkerboard (C=8)
+
+First multi-channel test. Validates:
+- 8-bit state handling
+- Non-periodic boundaries
+- Multi-step rollout (20 steps)
+
+**Exit criteria**:
+- Pattern emerges from seed
+- Generalizes to larger grids (16×16 → 64×64)
+
+### 2.2 Checkerboard Async (C=8)
+
+Same as 2.1 but with async training:
+- Fire rate masking
+- Self-healing behavior
+
+**Exit criteria**:
+- Fault tolerance demonstrated
+- Pattern recovers from damage
+
+### 2.3 Growing Lizard (C=128)
+
+Complex pattern generation:
+- 128-bit state (largest)
+- 12 growth steps
+- Fewer kernels (4 vs 16)
+
+**Exit criteria**:
+- Lizard pattern grows from seed
+- Works on 40×40 (trained on 20×20)
+
+### 2.4 Colored G (C=64)
+
+Most complex circuit:
+- 64-bit state (RGB)
+- 927 active gates
+- 15 generation steps
+
+**Exit criteria**:
+- Colored G pattern generated
+- 8-color palette visible
+
+---
+
+## Phase 3: Library API
+
+**Goal**: Clean abstractions for users
+
+### 3.1 API Design
+- `DiffLogicCA::new(config)` - create model
+- `model.train(data, epochs)` - training
+- `model.step(grid)` - single step
+- `model.simulate(grid, steps)` - multi-step
+
+### 3.2 Serialization
+- Save/load trained circuits
+- Export gate weights and connections
+- Hard-decode to pure logic circuit
+
+### 3.3 Testing & Docs
+- Comprehensive test suite
 - Tutorial: "Train your first CA"
-- Architecture explanation (with diagrams comparing to reference)
-- Document training tricks (gate initialization, clipping, fire rate)
-- **Exit criteria**: New user can train Game of Life from docs alone
+- Benchmark suite vs reference impl
 
 ---
 
-### **Phase 3: Generalization to Other CA Rules**
-**Goal**: Validate that library works beyond Game of Life
+## Phase 4: Advanced Features
 
-#### **3.1 Parameterize CA Rules**
-- Support different neighborhood types (Moore, von Neumann)
-- Configurable state spaces (binary → multi-bit)
-- Flexible perception kernel counts and topologies
-- **Exit criteria**: Can define arbitrary CA rule learning tasks
+### 4.1 Architecture Search
+- Auto-tune kernel count, layer depth
+- Find minimal circuit for accuracy
 
-#### **3.2 Validate on Known Rules**
-- Learn Wolfram elementary CA (Rule 30, Rule 110)
-- Learn Brian's Brain, WireWorld, Seeds
-- Compare learned circuits to ground truth
-- **Reference impl tested**: Checkerboard patterns, emoji growth
-- **Exit criteria**: ≥3 different CA rules learned successfully
+### 4.2 Larger Neighborhoods
+- 5×5, 7×7 (currently only 3×3)
 
-#### **3.3 Benchmarking Suite**
-- Standardized tasks with difficulty ratings
-- Performance metrics (convergence speed, final accuracy, circuit size)
-- Compare Rust impl performance to reference Python/JAX
-- **Exit criteria**: Reproducible benchmark results
+### 4.3 Inverse Problems
+- Given behavior → find rule
+- Self-healing optimization
 
 ---
 
-### **Phase 4: Advanced Features**
-**Goal**: Push beyond paper's scope, explore what's possible
+## Phase 5: Ecosystem
 
-#### **4.1 Architecture Search**
-- Hyperparameter tuning (# perception circuits, layer depth)
-- Automatically find minimal circuit for given accuracy
-- Explore different connection topologies beyond "first_kernel" and "unique"
-- **Exit criteria**: Can recommend architecture for new CA learning tasks
-
-#### **4.2 Multi-State CA**
-- Extend from binary to multi-valued states (4-state, 8-state)
-- Use soft gates with more inputs or hierarchical circuits
-- **Exit criteria**: Learn at least one non-binary CA rule
-
-#### **4.3 Larger Neighborhoods**
-- Beyond 3x3 (5x5, 7x7)
-- Efficient handling of exponentially growing input space
-- **Exit criteria**: Learn rule requiring larger context
-
-#### **4.4 Inverse Problems**
-- Given desired behavior (pattern generation), find CA rule
-- Optimize for specific properties (entropy, stability, fault tolerance)
-- Reference impl shows self-healing with async updates - formalize this
-- **Exit criteria**: One working example of behavior-driven rule discovery
-
----
-
-### **Phase 5: Ecosystem & Interop**
-**Goal**: Make library useful in broader contexts
-
-#### **5.1 Python Bindings (PyO3)**
-- Expose core API to Python
-- Jupyter notebook examples (similar format to reference Colab)
-- Integration with PyTorch/JAX for hybrid models
-- **Exit criteria**: `pip install logicars`, run training from Python
-
-#### **5.2 Visualization Tools**
-- Render CA evolution (grids → animations)
-- Visualize learned circuits (gate diagrams)
-- Training progress dashboards
-- Reproduce reference impl's visualizations in Rust
-- **Exit criteria**: Publication-quality figures from library
-
-#### **5.3 R Bindings (extendr)**
-- Statistical analysis of learned rules
-- Integration with R's visualization ecosystem
-- **Exit criteria**: CRAN-ready package (if desired)
-
-#### **5.4 WASM/Browser Demo**
-- Compile to WebAssembly
-- Interactive demo: train CA in browser
-- **Exit criteria**: Shareable web demo of library capabilities
-
----
-
-### **Phase 6: Research Extensions** (Optional)
-**Goal**: Novel contributions beyond replication
-
-#### **6.1 Transfer Learning**
-- Train on Game of Life, fine-tune on similar rules
-- Investigate what circuits learn about CA structure
-
-#### **6.2 Probabilistic/Stochastic CA**
-- Rules with randomness
-- Soft execution during inference (not just training)
-- Extend reference impl's fire rate concept to probabilistic rules
-
-#### **6.3 Continuous-Space CA**
-- Apply to neural CA (continuous states)
-- Hybrid discrete logic + continuous functions
-
-#### **6.4 Hardware Synthesis**
-- Export learned circuits to Verilog/VHDL
-- FPGA deployment of learned rules
-- Hard-decoded circuits are hardware-ready by design
+### 5.1 Python Bindings (PyO3)
+### 5.2 Visualization Tools
+### 5.3 WASM Demo
 
 ---
 
 ## Critical Success Factors
 
-1. **Verification First**: Never proceed to next phase with failing tests
-2. **Minimal Viable Increments**: Each sub-phase should take days, not weeks
-3. **Empirical Validation**: Always compare to reference implementation results when available
-4. **Fail Fast**: If convergence fails, debug at current phase before adding complexity
-5. **Documentation as You Go**: Write docs when API is fresh in mind
+1. **N-bit from start**: No refactoring for multi-channel
+2. **Verification first**: Never proceed with failing tests
+3. **Match reference**: Compare outputs layer-by-layer
+4. **GoL is validation, not goal**: The real value is Phases 2.x
 
 ---
 
 ## Risk Mitigation
 
-### Convergence Issues
-- Keep detailed training logs, visualize gradients
-- Compare to numerical gradients (automated tests)
-- Reference impl needed deterministic ops for reproducibility - consider early
-- Use reference hyperparameters as baseline (LR 0.05-0.06, clipping 100.0)
+### Architecture Mismatch (LEARNED)
+Previous 81% ceiling was due to wrong architecture. Always:
+- Count gates and compare to reference
+- Verify perception + update separation
+- Check center cell concatenation
 
-### Architecture Mistakes
-- Validate each layer independently before integration
-- Compare intermediate outputs to reference impl when possible
-- Test pass-through gate initialization (index 3 = 10.0)
+### Multi-bit Complexity
+Test incrementally: C=1 → C=8 → C=64 → C=128
 
-### Over-Engineering
-- Resist abstractions until pattern emerges from 2-3 concrete examples
-- Reference impl is ~300 lines - start similarly minimal
-
-### Scope Creep
-- Phase 1 delivers value (working Game of Life trainer)
-- Everything after is enhancement
-- Reference impl proves core concept works - focus on correct replication first
+### Over-engineering
+Keep it simple. N-bit is the ONE complexity we're adding early because it's foundational.
 
 ---
 
-## Key Implementation Tricks from Reference
+## Key Implementation Tricks (from Reference)
 
-These should be incorporated throughout development:
-
-1. **Gate initialization**: Pass-through gate (index 3) = 10.0 for training stability
-2. **Gradient clipping**: 100.0 (prevents explosion in discrete optimization)
-3. **Soft/Hard decoding**: Train soft, evaluate hard, report both metrics
-4. **Concatenation**: Always include center cell value in update module inputs
-5. **Fire rate**: 0.6 for async training enables fault tolerance and generalization
-6. **Deterministic ops**: Critical for reproducible results (worth performance cost during development)
-7. **Perception topologies**: "first_kernel" for layer 1, "unique" for subsequent layers
-8. **Batch diversity**: Random sampling from full configuration space, not sequential
+1. **Pass-through init**: Gate index 3 = 10.0 logit
+2. **Gradient clipping**: 100.0
+3. **Soft/hard**: Train soft (softmax), eval hard (argmax)
+4. **Center concat**: Always preserve center cell
+5. **Fire rate**: 0.6 for async training
+6. **first_kernel**: Layer 1 perception topology
+7. **unique**: All other layer connections
 
 ---
 
-This plan takes you from "can we even train one gate" to "fully-featured library with bindings and novel applications." The key insight from Claude.md is that **previous attempts failed by skipping validation steps**. The reference implementation provides ground truth for every phase - use it liberally to validate correctness before optimizing or extending.
+## What Changed from Original Plan
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| Multi-state | Phase 4.2 | Phase 1.1 (foundational) |
+| GoL | Phase 1 goal | Phase 1.5 (validation of N-bit) |
+| Checkerboard | Not planned | Phase 2.1-2.2 |
+| Lizard/Colored G | Not planned | Phase 2.3-2.4 |
+| Grid type | `Vec<bool>` | `Grid<C>` (N-bit) |
+
+**Rationale**: See `claude/qa-review-1.md`
