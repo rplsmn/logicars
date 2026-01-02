@@ -188,3 +188,5 @@ See `claude/implementation-log.md` for detailed progress. The project follows a 
 8. Update `claude/implementation-log.md`
 9. Commit with detailed message
 10. Push to branch and create PR
+
+use the gh cli utility to manage interactions with Github
