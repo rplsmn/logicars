@@ -25,7 +25,7 @@ Project had tunnel vision on Game of Life (1-bit) when the paper's value lies in
 
 ### Changes Made
 
-1. **claude/plan.md**: Restructured phases
+1. **agents/plan.md**: Restructured phases
    - Phase 1.1: N-bit Grid (not single-bit)
    - Phase 1.5: GoL as validation (not goal)
    - Phase 2.x: Multi-bit experiments (Checkerboard, Lizard, Colored G)

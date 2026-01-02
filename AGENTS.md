@@ -2,22 +2,22 @@
 
 ## Getting Started
 
-**IMPORTANT**: Before starting any work on this project, always read the documents in the `claude/` folder if it exists:
+**IMPORTANT**: Before starting any work on this project, always read the documents in the `agents/` folder if it exists:
 
-1. **`claude/plan.md`** - Full development roadmap and phase requirements
-2. **`claude/implementation-log.md`** - Implementation history, learnings, and what's next
+1. **`agents/plan.md`** - Full development roadmap and phase requirements
+2. **`agents/implementation-log.md`** - Implementation history, learnings, and what's next
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
-### If the `claude/` folder doesn't exist
+### If the `agents/` folder doesn't exist
 
 Create it and add the two key documents:
 
 ```bash
-mkdir claude
+mkdir agents
 ```
 
-#### 1. Create `claude/plan.md` (Development Roadmap)
+#### 1. Create `agents/plan.md` (Development Roadmap)
 
 This document should contain:
 
@@ -50,7 +50,7 @@ Structure example:
 ...
 ```
 
-#### 2. Create `claude/implementation-log.md` (Progress & Learnings)
+#### 2. Create `agents/implementation-log.md` (Progress & Learnings)
 
 This document should contain:
 
@@ -122,7 +122,7 @@ As the project progresses, these documents can become unwieldy. **Periodically r
 **For `implementation-log.md`:**
 - Completed phases can be summarized once stable (keep key learnings, remove verbose details)
 - Collapse multiple phase sections into summary tables when appropriate
-- Archive very old detailed logs to a separate `claude/archive/` folder if needed
+- Archive very old detailed logs to a separate `agents/archive/` folder if needed
 - The most recent 2-3 phases should remain detailed; older phases can be condensed
 
 **For `plan.md`:**
@@ -174,19 +174,46 @@ The `archive/` folder contains old, outdated implementations kept for documentat
 
 ### Current Status
 
-See `claude/implementation-log.md` for detailed progress. The project follows a phased approach from single gates to full CA training.
+See `agents/implementation-log.md` for detailed progress. The project follows a phased approach from single gates to full CA training.
 
 ## Development Workflow
 
-1. Read phase requirements from `claude/plan.md`
+1. Read phase requirements from `agents/plan.md`
 2. Create TodoWrite list with specific tasks
 3. Write unit tests for core functionality first
 4. Implement core logic
 5. Run `cargo test --lib` continuously
 6. Create integration test binary if needed
 7. Verify all exit criteria met
-8. Update `claude/implementation-log.md`
-9. Commit with detailed message
-10. Push to branch and create PR
+8. Update `agents/implementation-log.md`
+9. **Ask for greenlight** before committing
+10. Commit with detailed message
+11. Push to branch and create PR
 
-use the gh cli utility to manage interactions with Github
+### Long-Running Tasks
+
+For any task projected to take **over 60 seconds** (e.g., full model training, large test suites):
+
+1. **Do NOT run it yourself** - it will timeout or block progress
+2. **Provide the command** to the human with clear instructions
+3. **Wait for feedback** - the human will run it and report results
+4. **Continue based on results** - adjust approach if needed
+
+Example:
+```
+This training will take ~30 minutes. Please run:
+
+    cargo run --bin train_gol --release
+
+And let me know the final accuracy achieved.
+```
+
+### Completion Protocol
+
+After a step/phase is successful:
+
+1. **Ask for greenlight**: "Ready to commit. Proceed?"
+2. **If yes**: Commit, push to new branch, and open PR
+3. **If no**: Wait for additional instructions
+
+Use the gh cli utility to manage interactions with Github
