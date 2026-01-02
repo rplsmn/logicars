@@ -21,6 +21,9 @@ pub mod phase_1_1;
 // N-bit Grid (Phase 1.1 refactor)
 pub mod grid;
 
+// Phase 1.2: Perception Module
+pub mod perception;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
@@ -29,6 +32,14 @@ pub use phase_0_2::{GateLayer, LayerTrainer, LayerTrainingResult, LayerTruthTabl
 pub use phase_0_3::{Circuit, CircuitTrainer, CircuitTrainingResult, CircuitTruthTable, ConnectionPattern};
 pub use phase_1_1::{Grid, Neighborhood, GolTruthTable, PerceptionKernel, PerceptionTrainer, PerceptionTrainingResult, PerceptionTopology, DeepPerceptionKernel, DeepPerceptionTrainer};
 pub use grid::{NGrid, NNeighborhood, BoundaryCondition};
+pub use perception::{
+    PerceptionModule,
+    PerceptionKernel as NPerceptionKernel,  // N-bit version
+    PerceptionTrainer as NPerceptionTrainer,  // N-bit version
+    ConnectionType,
+    Wires,
+    GateLayer as NbitGateLayer,  // N-bit version
+};
 
 // Old modules (from failed attempt - kept for reference)
 #[cfg(feature = "python")]
