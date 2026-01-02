@@ -358,6 +358,118 @@ cargo test c64 --lib
 
 ---
 
+## Phase 1.2: Perception Module ✅ COMPLETE
+
+**Date**: 2026-01-02
+**Status**: ALL EXIT CRITERIA MET
+
+### What Was Implemented
+
+Created `src/perception.rs` with full perception module matching reference architecture:
+
+1. **Connection Topologies**
+   - `first_kernel_connections()`: Center vs 8 neighbors (Moore neighborhood)
+   - `unique_connections()`: Unique pair connections for information mixing
+   - `ConnectionType` enum: `FirstKernel` and `Unique`
+
+2. **GateLayer**: Single layer with fixed wiring
+   - `forward_soft()`: Soft execution for training
+   - `forward_hard()`: Hard execution for inference
+
+3. **PerceptionKernel**: Multi-layer gate network
+   - Configurable architecture (e.g., [9→8→4→2→1] for GoL)
+   - Forward pass stores all activations for gradient computation
+   - `gol_kernel()`: Convenience constructor for GoL config
+
+4. **PerceptionModule**: K parallel kernels with center concatenation
+   - Configurable: channels (C=1-128), num_kernels (K=1-16+)
+   - Forward pass: [center_cell (C bits), kernel_outputs]
+   - Backward pass: Gradient accumulation across channels
+   - `gol_module()`: 16 kernels, [9→8→4→2→1] architecture
+
+5. **PerceptionTrainer**: Training infrastructure
+   - AdamW optimizer per gate
+   - Gradient clipping (100.0)
+   - MSE loss computation
+
+### Test Results
+
+```
+running 75 tests (14 new for perception module)
+test result: ok. 75 passed; 0 failed
+```
+
+New tests cover:
+- Connection generation (first_kernel, unique)
+- Kernel architecture validation
+- Forward pass (soft/hard)
+- Multi-channel support (C=1, C=8)
+- Numerical gradient verification
+- Training loss decrease
+
+### Exit Criteria: ✅ ALL MET
+
+- ✅ Forward pass works for C=1 (GoL config: 16 kernels, [9→8→4→2→1])
+- ✅ Gradients verified numerically
+- ✅ Multi-channel support (C=1, C=8 tested)
+- ✅ Center cell concatenation implemented
+- ✅ All 75 tests pass
+
+### Key Technical Decisions
+
+1. **Separate module** (`perception.rs`) from old `phase_1_1.rs` for clean architecture
+2. **Wires struct** stores (a_indices, b_indices) similar to reference impl
+3. **Per-channel kernel execution** with gradient accumulation across channels
+4. **Gradient clipping at 100.0** matching reference
+
+### Architecture Match with Reference
+
+```
+Reference Python:                    Rust Implementation:
+───────────────────────────────────────────────────────────────
+init_perceive_network()       →      PerceptionModule::new()
+run_perceive()                →      PerceptionModule::forward_soft()
+get_moore_connections()       →      first_kernel_connections()
+get_unique_connections()      →      unique_connections()
+init_gate_layer()             →      GateLayer::new()
+run_layer()                   →      GateLayer::forward_soft()
+```
+
+### Code Organization
+
+```
+src/
+├── perception.rs        # NEW: PerceptionModule, PerceptionKernel, connections
+├── grid.rs              # NGrid, NNeighborhood
+├── phase_1_1.rs         # OLD: Grid (Vec<bool>), kept for reference
+└── lib.rs               # Updated exports
+```
+
+### Commands for Next Developer
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run perception tests only
+cargo test perception --lib
+
+# Verify module architecture
+cargo test gol_module_architecture --lib
+```
+
+---
+
+## Next Steps
+
+**Phase 1.3: Update Module** - Implement the update network that takes perception outputs and produces next cell state:
+- Input: center_channels + kernel_outputs (17 bits for GoL)
+- Architecture: [17→128×10→64→32→16→8→4→2→1]
+- All "unique" connections
+- Forward and backward pass
+
+---
+
 **Last Updated**: 2026-01-02
-**Current Phase**: 1.1 ✅ COMPLETE → Ready for 1.2 (Perception Module)
-**Status**: N-bit Grid implemented with 25 tests passing
+**Current Phase**: 1.2 ✅ COMPLETE → Ready for 1.3 (Update Module)
+**Status**: Perception module implemented with 75 tests passing

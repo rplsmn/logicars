@@ -87,6 +87,7 @@ impl BinaryOp {
 }
 
 /// A probabilistic gate that maintains a distribution over all 16 binary operations
+#[derive(Debug, Clone)]
 pub struct ProbabilisticGate {
     /// Logits for each of the 16 operations (unnormalized log probabilities)
     /// Index 3 (pass-through) should be initialized to 10.0 for stability
