@@ -24,6 +24,9 @@ pub mod grid;
 // Phase 1.2: Perception Module
 pub mod perception;
 
+// Phase 1.3: Update Module
+pub mod update;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
@@ -39,6 +42,12 @@ pub use perception::{
     ConnectionType,
     Wires,
     GateLayer as NbitGateLayer,  // N-bit version
+};
+pub use update::{
+    UpdateModule,
+    UpdateTrainer,
+    DiffLogicCA,
+    DiffLogicCATrainer,
 };
 
 // Old modules (from failed attempt - kept for reference)

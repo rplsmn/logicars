@@ -460,16 +460,118 @@ cargo test gol_module_architecture --lib
 
 ---
 
+## Phase 1.3: Update Module ✅ COMPLETE
+
+**Date**: 2026-01-02
+**Status**: ALL EXIT CRITERIA MET
+
+### What Was Implemented
+
+Created `src/update.rs` with full update module and complete DiffLogicCA:
+
+1. **UpdateModule**: Deep gate network with "unique" connections
+   - Configurable architecture (e.g., [17→128×10→64→32→16→8→4→2→1])
+   - `forward_soft()`: Soft execution for training with all layer activations
+   - `forward_hard()`: Hard execution for inference
+   - `compute_gradients()`: Full backpropagation through all layers
+   - `gol_module()`: GoL-specific architecture (17 layers)
+   - `small_module()`: Test helper that respects unique_connections constraint
+
+2. **DiffLogicCA**: Complete differentiable logic CA combining perception + update
+   - Takes `PerceptionModule` and `UpdateModule` with verified compatibility
+   - `gol()`: Convenience constructor for full GoL architecture
+   - `forward_soft()`: Full forward pass with all activations
+   - `forward_hard()`: Inference mode with discrete gates
+
+3. **DiffLogicCATrainer**: Training infrastructure for the complete model
+   - AdamW optimizer per gate (perception + update)
+   - Gradient clipping (100.0)
+   - Full backpropagation through perception → update chain
+   - MSE loss computation
+
+4. **UpdateTrainer**: Standalone trainer for update module testing
+
+### Test Results
+
+```
+running 88 tests (13 new for update module)
+test result: ok. 88 passed; 0 failed
+```
+
+New tests cover:
+- Module architecture validation
+- Forward pass (soft/hard)
+- Numerical gradient verification
+- Training loss decrease
+- DiffLogicCA integration
+- Gate count validation
+
+### Exit Criteria: ✅ ALL MET
+
+- ✅ Forward pass through complete perception→update chain
+- ✅ Backprop through full model verified numerically
+- ✅ Works for GoL config: [17→128×10→64→32→16→8→4→2→1]
+- ✅ All 88 tests pass
+
+### Key Technical Decisions
+
+1. **Reused GateLayer from perception** - same wire/gate structure
+2. **unique_connections constraint** documented: `out_dim * 2 >= in_dim`
+3. **Separate UpdateTrainer** for isolated testing
+4. **DiffLogicCATrainer** chains gradients through perception output
+
+### Architecture Match with Reference
+
+```
+Reference Python:                    Rust Implementation:
+───────────────────────────────────────────────────────────────
+init_logic_gate_network()     →      UpdateModule::new()
+run_update()                  →      UpdateModule::forward_soft()
+run_circuit()                 →      DiffLogicCA::forward_soft()
+train_step()                  →      DiffLogicCATrainer::train_step()
+```
+
+### Code Organization
+
+```
+src/
+├── update.rs            # NEW: UpdateModule, DiffLogicCA, trainers
+├── perception.rs        # PerceptionModule, PerceptionKernel
+├── grid.rs              # NGrid, NNeighborhood
+├── phase_1_1.rs         # OLD: Grid (Vec<bool>), kept for reference
+└── lib.rs               # Updated exports
+```
+
+### Commands for Next Developer
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run update tests only
+cargo test update --lib
+
+# Verify complete architecture
+cargo test gol_architecture --lib
+```
+
+---
+
 ## Next Steps
 
-**Phase 1.3: Update Module** - Implement the update network that takes perception outputs and produces next cell state:
-- Input: center_channels + kernel_outputs (17 bits for GoL)
-- Architecture: [17→128×10→64→32→16→8→4→2→1]
-- All "unique" connections
-- Forward and backward pass
+**Phase 1.4: Training Loop (MSE Loss)** - Complete training infrastructure:
+- Support sync and async training modes
+- Fire rate masking for async (0.6)
+- Grid-level training with all cell updates
+- Match reference loss computation
+
+**Phase 1.5: GoL Validation** - Train and validate on Game of Life:
+- Train with all 512 neighborhood configurations
+- Target >95% hard accuracy
+- Validate with gliders and blinkers
 
 ---
 
 **Last Updated**: 2026-01-02
-**Current Phase**: 1.2 ✅ COMPLETE → Ready for 1.3 (Update Module)
-**Status**: Perception module implemented with 75 tests passing
+**Current Phase**: 1.3 ✅ COMPLETE → Ready for 1.4 (Training Loop)
+**Status**: Update module implemented with 88 tests passing
