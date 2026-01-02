@@ -15,6 +15,35 @@ Copyright 2025 Google LLC - Licensed under Apache License 2.0
 ## Contents
 
 - `difflogic_ca.py` - Extracted Python code with ALL experiment hyperparameters
+- `diffLogic_CA.ipynb` - Original Colab notebook (full reference)
+
+### What's in `difflogic_ca.py`
+
+**Core Logic** (all gates/operations):
+- `bin_op_all_combinations`, `bin_op_s`, `decode_soft/hard`
+
+**Network Construction**:
+- `get_moore_connections`, `get_unique_connections`
+- `init_gates`, `init_gate_layer`
+- `init_logic_gate_network`, `init_perceive_network`, `init_diff_logic_ca`
+
+**Execution**:
+- `run_layer`, `run_update`, `run_perceive`, `run_circuit`
+- `get_grid_patches`, `run_async`, `run_sync`, `run_iter_nca`
+
+**Training**:
+- `loss_f`, `init_state`, `train_step`
+
+**Data Generation**:
+- `gol_step` - Single GoL step
+- `simulate_gol_batch` - Multi-step GoL simulation
+- `generate_all_3x3_neighborhoods` - All 512 binary 3x3 configs
+- `sample_gol_batch` - Sample training batches from trajectories
+- `create_checkerboard` - Generate checkerboard target pattern
+
+**Experiment Hyperparameters**:
+- `GOL_HYPERPARAMS`, `CHECKERBOARD_SYNC_HYPERPARAMS`, `CHECKERBOARD_ASYNC_HYPERPARAMS`
+- `GROWING_LIZARD_HYPERPARAMS`, `COLORED_G_HYPERPARAMS`
 
 ---
 

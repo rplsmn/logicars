@@ -603,3 +603,124 @@ EXPERIMENTS = {
     'lizard': GROWING_LIZARD_HYPERPARAMS,
     'colored_g': COLORED_G_HYPERPARAMS,
 }
+
+
+# ============================================================================
+# DATA GENERATION: GAME OF LIFE
+# ============================================================================
+
+@jax.jit
+def gol_step(board):
+    """Applies one step of Conway's Game of Life rules to the board.
+
+    Args:
+        board: A 2D array representing the game board (1 = live, 0 = dead)
+
+    Returns:
+        Board after one step of the game.
+    """
+    # Count live neighbors using roll for each of 8 directions
+    n = sum(
+        jnp.roll(board, d, (0, 1))
+        for d in [
+            (1, 0),   # Right
+            (-1, 0),  # Left
+            (0, 1),   # Down
+            (0, -1),  # Up
+            (1, 1),   # Down-right
+            (-1, -1), # Up-left
+            (1, -1),  # Down-left
+            (-1, 1),  # Up-right
+        ]
+    )
+    # GoL rules: Birth (dead + 3 neighbors), Survive (alive + 2 or 3 neighbors)
+    return (n == 3) | (board & (n == 2))
+
+
+@partial(jax.jit, static_argnums=(1,))
+def simulate_gol_batch(boards, steps):
+    """Simulate GoL for multiple boards over multiple steps.
+
+    Args:
+        boards: Batch of 2D boards [batch, height, width]
+        steps: Number of simulation steps
+
+    Returns:
+        Trajectories [batch, steps+1, height, width]
+    """
+    def simulate_one(board):
+        states = [board]
+        for _ in range(steps):
+            board = gol_step(board)
+            states.append(board)
+        return jnp.stack(states)
+
+    return jax.vmap(simulate_one)(boards)
+
+
+def generate_all_3x3_neighborhoods():
+    """Generate all 512 possible 3x3 binary neighborhoods.
+
+    Returns:
+        Tensor of shape [512, 3, 3] with all configurations
+    """
+    binary_numbers = jnp.arange(512)
+    # Convert to binary and pad to 9 bits
+    binary_array = (
+        (binary_numbers[:, None] & (1 << jnp.arange(8, -1, -1))) > 0
+    ).astype(jnp.float32)
+    # Reshape to (512, 3, 3)
+    return binary_array.reshape(512, 3, 3)
+
+
+def sample_gol_batch(key, trajectories, batch_size, state_size):
+    """Sample a batch from GoL trajectories for training.
+
+    Args:
+        key: JAX random key
+        trajectories: [n_samples, steps+1, height, width] trajectory data
+        batch_size: Number of samples to draw
+        state_size: Number of channels (1 for GoL)
+
+    Returns:
+        (initial_states, target_states) tuple for training
+    """
+    n_samples = trajectories.shape[0]
+    sample_idx = jax.random.randint(
+        key, minval=0, maxval=n_samples, shape=(batch_size,)
+    )
+    # Create initial states with channel dimension
+    init = jnp.zeros(
+        (*trajectories[sample_idx, 0].shape, state_size), dtype=jnp.float32
+    )
+    init = init.at[..., 0].set(trajectories[sample_idx, 0].astype(jnp.float32))
+
+    # Create target states
+    target = jnp.zeros(
+        (*trajectories[sample_idx, 1].shape, state_size), dtype=jnp.float32
+    )
+    target = target.at[..., 0].set(trajectories[sample_idx, 1].astype(jnp.float32))
+
+    return init, target
+
+
+# ============================================================================
+# DATA GENERATION: CHECKERBOARD
+# ============================================================================
+
+def create_checkerboard(image_size=(64, 64), shape_size=8):
+    """Create a checkerboard pattern.
+
+    Args:
+        image_size: (height, width) tuple
+        shape_size: Size of each square in the pattern
+
+    Returns:
+        2D numpy array with checkerboard pattern (0s and 1s)
+    """
+    import numpy as np
+    image = np.zeros(image_size)
+    height, width = image_size
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+    image = ((x // shape_size) + (y // shape_size)) % 2
+    return image.astype(np.uint8)
