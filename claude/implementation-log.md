@@ -256,6 +256,24 @@ assert!(result.meets_exit_criteria(BinaryOp::And));
 
 ---
 
-**Last Updated**: 2026-01-01
-**Current Phase**: 1.1 - Perception Circuit (IN PROGRESS - needs architecture fix)
-**Status**: 81% accuracy; QA analysis recommends multi-kernel + update module approach
+---
+
+## QA Review: Scope Correction (2026-01-02)
+
+**Critical finding**: Project had tunnel vision on GoL when the paper's value is in multi-bit experiments.
+
+**Changes made**:
+- `claude/plan.md` restructured: Multi-state moved from Phase 4.2 → Phase 1.1
+- `reference/difflogic_ca.py` updated: Added all 5 experiment hyperparams
+- `reference/README.md` rewritten: Full documentation of all experiments
+- Created `claude/qa-review-1.md`: Detailed findings and rationale
+
+**Next step**: Implement N-bit Grid (Phase 1.1) before continuing with perception/update modules.
+
+See `claude/qa-review-1.md` for full details.
+
+---
+
+**Last Updated**: 2026-01-02
+**Current Phase**: 1.1 - N-bit Grid and Neighborhood (need to refactor from `Vec<bool>` to `Grid<C>`)
+**Status**: Documentation complete; code refactor pending
