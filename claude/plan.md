@@ -40,7 +40,7 @@ This means:
 
 **Goal**: Perception + Update modules that work for ANY channel count
 
-### 1.1 N-bit Grid and Neighborhood ⬅️ CURRENT
+### 1.1 N-bit Grid and Neighborhood ✅ COMPLETE
 
 **What to build**:
 ```rust
@@ -69,7 +69,7 @@ struct Grid {
 - Unit tests for C=1, C=8, C=64, C=128
 - Neighborhood extraction matches reference impl
 
-### 1.2 Perception Module (Parallel Kernels)
+### 1.2 Perception Module (Parallel Kernels) ✅ COMPLETE
 
 **Architecture** (from reference):
 ```
@@ -93,7 +93,7 @@ Output: [center_channels, kernel_1_out, ..., kernel_K_out]
 - Gradients verified numerically
 - Works for C=1 (GoL config: 16 kernels, [9→8→4→2→1])
 
-### 1.3 Update Module
+### 1.3 Update Module ✅ COMPLETE
 
 **Architecture**:
 ```
@@ -110,7 +110,7 @@ Output: C bits (next cell state)
 - Backprop through full perception→update chain
 - Works for GoL config: [17→128×10→64→...→1]
 
-### 1.4 Training Loop (MSE Loss)
+### 1.4 Training Loop (MSE Loss) ⬅️ CURRENT
 
 **Requirements**:
 - `loss = sum((predicted - target)²)` per cell per channel
