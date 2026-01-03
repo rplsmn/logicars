@@ -754,6 +754,48 @@ cargo run --bin train_gol --release
 
 ---
 
-**Last Updated**: 2026-01-02
+## Phase 1.5 Update: Full Training Mode
+
+**Date**: 2026-01-03
+
+### Changes Made
+
+1. **AdamW optimizer β2 changed from 0.999 to 0.99**
+   - Matches reference Python implementation
+   - Significantly improves training stability and convergence
+   - User reported 99% accuracy in 100 epochs with this change
+
+2. **Added `--full` flag for uninterrupted training**
+   - Disables early exit at 95% accuracy
+   - Allows testing limits of training (can reach 100%)
+   - Stops only at 100% accuracy or max epochs
+
+3. **Added `--epochs=N` for custom epoch count**
+   - Override default epoch limit
+   - Useful for long training runs
+
+### Usage
+
+```bash
+# Standard training (exits at 95%)
+cargo run --bin train_gol --release
+
+# Full training without early exit
+cargo run --bin train_gol --release -- --full
+
+# Custom epochs
+cargo run --bin train_gol --release -- --full --epochs=500
+
+# Small model with full training
+cargo run --bin train_gol --release -- --small --full
+```
+
+### Key Learning
+
+β2=0.99 (vs 0.999) helps escape local minima faster, leading to much better convergence on GoL.
+
+---
+
+**Last Updated**: 2026-01-03
 **Current Phase**: 1.5 ✅ COMPLETE → Ready for 2.1 (Checkerboard C=8)
-**Status**: GoL validation complete with 95.90% accuracy
+**Status**: GoL validation complete with 95.90% accuracy (potentially 100% with --full)
