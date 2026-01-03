@@ -30,6 +30,7 @@ This document should contain:
 - **Critical success factors**: Principles to follow (e.g., "verify before proceeding", "test first")
 
 Structure example:
+
 ```markdown
 # Project Name Development Roadmap
 
@@ -70,6 +71,7 @@ This document should contain:
 - **Next steps**: Clear direction for what comes next
 
 Structure example:
+
 ```markdown
 # Project Name Implementation Log
 
@@ -107,7 +109,9 @@ Structure example:
 ```
 
 ## Next Steps
+
 **Phase X.X**: Description of what's next
+
 ```
 
 #### Why These Documents Matter
@@ -189,7 +193,7 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 8. Update `agents/implementation-log.md`
 9. **Ask for greenlight** before committing
 10. Commit with detailed message
-11. Push to branch and create PR
+11. ALWAYS Push changes to dedicated /branch and create PR
 
 ### Long-Running Tasks
 
@@ -201,6 +205,7 @@ For any task projected to take **over 60 seconds** (e.g., full model training, l
 4. **Continue based on results** - adjust approach if needed
 
 Example:
+
 ```
 This training will take ~30 minutes. Please run:
 

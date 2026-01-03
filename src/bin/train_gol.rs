@@ -11,8 +11,8 @@
 //!   --full   Run full training without early exit (test limits of training)
 
 use logicars::{
-    DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
-    PerceptionModule, UpdateModule, ConnectionType,
+    ConnectionType, DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
+    PerceptionModule, UpdateModule,
 };
 use rand::seq::SliceRandom;
 use std::time::Instant;
@@ -26,7 +26,8 @@ fn main() {
     let full_training = args.iter().any(|a| a == "--full");
 
     // Parse --epochs=N for custom epoch count
-    let custom_epochs: Option<usize> = args.iter()
+    let custom_epochs: Option<usize> = args
+        .iter()
         .find(|a| a.starts_with("--epochs="))
         .and_then(|a| a.strip_prefix("--epochs="))
         .and_then(|s| s.parse().ok());
@@ -42,7 +43,7 @@ fn main() {
     if full_training {
         println!("⚡ FULL TRAINING MODE: Early exit disabled\n");
     }
-    
+
     println!("Model architecture:");
     println!("  Perception: {} gates", model.perception.total_gates());
     println!("  Update: {} gates", model.update.total_gates());
@@ -100,14 +101,18 @@ fn main() {
         if epoch % eval_interval == 0 || epoch == max_epochs - 1 {
             let accuracy = evaluate_accuracy(&trainer.model, &truth_table);
             let elapsed = start.elapsed().as_secs_f32();
-            
+
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
 
             println!(
                 "Epoch {:5}: Loss = {:.6}, Acc = {:.2}% (best: {:.2}%) [{:.1}s]",
-                epoch, epoch_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
+                epoch,
+                epoch_loss,
+                accuracy * 100.0,
+                best_accuracy * 100.0,
+                elapsed
             );
 
             // Early exit only if not in full training mode
@@ -147,8 +152,11 @@ fn main() {
     if final_accuracy >= target_accuracy {
         println!("✅ Phase 1.5 COMPLETE: All exit criteria met");
     } else {
-        println!("❌ Phase 1.5 INCOMPLETE: Accuracy {:.2}% < {:.0}%", 
-            final_accuracy * 100.0, target_accuracy * 100.0);
+        println!(
+            "❌ Phase 1.5 INCOMPLETE: Accuracy {:.2}% < {:.0}%",
+            final_accuracy * 100.0,
+            target_accuracy * 100.0
+        );
     }
 }
 
@@ -241,11 +249,14 @@ fn test_glider(model: &DiffLogicCA) {
         .collect();
 
     println!("Live cells after 4 steps: {:?}", live_cells);
-    
+
     if live_cells.len() == 5 {
         println!("✅ Glider maintains 5 cells");
     } else {
-        println!("❌ Glider cell count changed: {} (expected 5)", live_cells.len());
+        println!(
+            "❌ Glider cell count changed: {} (expected 5)",
+            live_cells.len()
+        );
     }
 }
 
@@ -294,8 +305,8 @@ fn print_grid(grid: &NGrid) {
 fn create_small_model() -> DiffLogicCA {
     // Medium perception: 8 kernels, [9→8→4→2→1] (60 gates)
     let perception = PerceptionModule::new(
-        1,  // channels
-        8,  // kernels (vs 16 for full)
+        1, // channels
+        8, // kernels (vs 16 for full)
         &[9, 8, 4, 2, 1],
         &[
             ConnectionType::FirstKernel,
@@ -304,11 +315,11 @@ fn create_small_model() -> DiffLogicCA {
             ConnectionType::Unique,
         ],
     );
-    
+
     // Medium update: Input = 1 (center) + 8 (kernels) = 9
     // Need more capacity to learn GoL. Reference uses [17→128×10→...→1]
     // We'll use [9→16→16→16→8→4→2→1] = ~70 gates
     let update = UpdateModule::new(&[9, 16, 16, 16, 8, 4, 2, 1]);
-    
+
     DiffLogicCA::new(perception, update)
 }
