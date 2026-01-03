@@ -143,12 +143,18 @@ Output: C bits (next cell state)
 
 **Goal**: Validate N-bit architecture on progressively harder tasks
 
-### 2.1 Checkerboard (C=8) ⬅️ CURRENT
+### 2.1 Checkerboard (C=8) 🚧 IN PROGRESS
 
 First multi-channel test. Validates:
 - 8-bit state handling
 - Non-periodic boundaries
 - Multi-step rollout (20 steps)
+
+**Implementation status**:
+- ✅ Model architecture: perception (16 kernels, [9→8→4→2]) + update ([264→256×10→...→8])
+- ✅ Training binary: `src/bin/train_checkerboard.rs`
+- ✅ Unit tests: 14 tests passing
+- ⬜ Training: Requires long training run (hours)
 
 **Exit criteria**:
 - Pattern emerges from seed

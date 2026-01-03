@@ -219,6 +219,40 @@ The architecture is validated, exit criteria are met, and all prerequisites for 
 
 ---
 
+## Phase 2.1 Update (2026-01-02)
+
+### Files Added for Phase 2.1
+
+| File | Description |
+|------|-------------|
+| `src/checkerboard.rs` | Checkerboard pattern, model constructors, loss functions |
+| `src/bin/train_checkerboard.rs` | Training binary for checkerboard experiment |
+
+### Implementation Status
+
+- ✅ Model architecture implemented (perception + update for C=8)
+- ✅ Training infrastructure complete
+- ✅ 118 tests passing (14 new for checkerboard)
+- ⬜ Training not yet complete (requires hours of compute)
+
+### Architecture Implemented
+
+- **Perception**: 16 kernels, [9→8→4→2] (224 gates)
+- **Update**: [264→256×10→128→64→32→16→8→8] (~4600 gates for full model)
+- **Small model**: 728 gates for fast iteration
+
+### Commands for Training
+
+```bash
+# Quick test (small model)
+cargo run --bin train_checkerboard --release -- --small --epochs 10
+
+# Full training (will take hours)
+cargo run --bin train_checkerboard --release -- --epochs 500
+```
+
+---
+
 ## Appendix: Reference Hyperparameters for Next Phases
 
 ### Checkerboard Sync (Phase 2.1)

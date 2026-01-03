@@ -752,11 +752,7 @@ cargo run --bin train_gol --release
 3. **Per-example training is slow** - batching would help significantly
 4. **The architecture is validated** - ready for multi-channel experiments
 
----
-
-## Phase 1.5 Update: Full Training Mode
-
-**Date**: 2026-01-03
+**Date**: 2026-01-02
 
 ### Changes Made
 
@@ -793,9 +789,113 @@ cargo run --bin train_gol --release -- --small --full
 ### Key Learning
 
 β2=0.99 (vs 0.999) helps escape local minima faster, leading to much better convergence on GoL.
+  
+---
+
+## Phase 2.1: Checkerboard Sync (C=8) 🚧 IN PROGRESS
+**Date**: 2026-01-02
+**Status**: INFRASTRUCTURE COMPLETE, TRAINING NEEDED
+
+### What Was Implemented
+
+Created `src/checkerboard.rs` with complete checkerboard experiment infrastructure:
+
+1. **Pattern Generation**
+   - `create_checkerboard(size, square_size, channels)` - target pattern
+   - `create_random_seed(size, channels, rng)` - random initial seeds
+
+2. **Model Constructors**
+   - `create_checkerboard_perception()` - 16 kernels, [9→8→4→2] architecture
+   - `create_checkerboard_update()` - [264→256×10→128→64→32→16→8→8]
+   - `create_checkerboard_model()` - full model with ~4800+ gates
+   - `create_small_checkerboard_model()` - smaller model (728 gates) for testing
+
+3. **Evaluation Functions**
+   - `compute_checkerboard_loss()` - MSE on channel 0
+   - `compute_checkerboard_accuracy()` - hard accuracy on channel 0
+
+4. **Training Binary**
+   - `src/bin/train_checkerboard.rs` - complete training loop
+   - 16×16 training grid, 20-step rollout, non-periodic boundaries
+   - Generalization test on 64×64 grid
+
+### Architecture Details
+
+| Component | Small Model | Full Model | Reference |
+|-----------|-------------|------------|-----------|
+| Perception kernels | 16 | 16 | 16 |
+| Perception architecture | [9→8→4→2] | [9→8→4→2] | [9→8→4→2] |
+| Perception gates | 224 | 224 | 224 |
+| Update input | 264 | 264 | ~264 |
+| Update layers | 6 | 17 | 17 |
+| Update gates | 504 | ~4600 | ~4600 |
+| Total gates | 728 | ~4800 | ~4800 |
+
+Input calculation: `8 (center) + 16 (kernels) × 2 (output bits) × 8 (channels) = 264`
+
+### Test Results
+
+```
+running 118 tests (14 new for checkerboard module)
+test result: ok. 118 passed; 0 failed
+```
+
+New tests cover:
+- Pattern generation (various square sizes)
+- Random seed creation
+- Architecture validation
+- Loss/accuracy computation
+- Forward pass execution
+
+### Training Test Run
+
+Quick test with small model (10 epochs):
+```
+Model: 728 gates (224 perception + 504 update)
+Grid: 16×16, 8 channels, 20 steps
+Result: ~50% accuracy (random, needs more training)
+Speed: ~1s per epoch
+```
+
+### Exit Criteria Status
+
+- ✅ Multi-channel grid (C=8) working
+- ✅ Perception output size correct (264)
+- ✅ Training loop runs without errors
+- ⬜ Pattern emergence (needs long training)
+- ⬜ Generalization to 64×64 (needs long training)
+
+### Key Technical Decisions
+
+1. **Pattern in channel 0**: Other channels used as working memory
+2. **Non-periodic boundaries**: Use BoundaryCondition::NonPeriodic
+3. **Unique connections constraint**: out_dim * 2 >= in_dim (respected in all layers)
+4. **Small model for dev**: 728 gates for fast iteration
+
+### Commands
+
+```bash
+# Run unit tests
+cargo test --lib checkerboard
+
+# Run quick training test (small model, 10 epochs)
+cargo run --bin train_checkerboard --release -- --small --epochs 10
+
+# Run full training (will take a long time)
+cargo run --bin train_checkerboard --release -- --epochs 500
+```
+
+### Next Steps
+
+The infrastructure is complete. To achieve actual pattern learning:
+1. Run full model training for 500+ epochs
+2. Monitor loss decrease and pattern emergence
+3. Test generalization from 16×16 → 64×64
+
+Note: Full training will take hours due to per-cell gradient computation.
 
 ---
 
-**Last Updated**: 2026-01-03
-**Current Phase**: 1.5 ✅ COMPLETE → Ready for 2.1 (Checkerboard C=8)
-**Status**: GoL validation complete with 95.90% accuracy (potentially 100% with --full)
+**Last Updated**: 2026-01-02
+**Current Phase**: 2.1 🚧 IN PROGRESS (infrastructure complete)
+**Status**: Checkerboard training infrastructure ready
