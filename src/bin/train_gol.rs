@@ -14,6 +14,7 @@ use logicars::{
     DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
     PerceptionModule, UpdateModule, ConnectionType,
 };
+use rand::seq::SliceRandom;
 use std::time::Instant;
 
 fn main() {
@@ -76,11 +77,18 @@ fn main() {
     let mut best_accuracy = 0.0;
     let start = Instant::now();
 
+    // Shuffled indices for stochastic training (matches reference approach)
+    let mut rng = rand::rng();
+    let mut indices: Vec<usize> = (0..512).collect();
+
     for epoch in 0..max_epochs {
         let mut epoch_loss = 0.0;
 
-        // Train on all 512 configurations
-        for idx in 0..512 {
+        // Shuffle pattern order each epoch to break ordering bias
+        indices.shuffle(&mut rng);
+
+        // Train on all 512 configurations in shuffled order
+        for &idx in &indices {
             let neighborhood = NNeighborhood::from_gol_index(idx);
             let target = if truth_table.target(idx) { 1.0 } else { 0.0 };
             let loss = trainer.train_step(&neighborhood, &[target]);
