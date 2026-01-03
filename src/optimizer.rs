@@ -28,7 +28,7 @@ impl AdamW {
         Self {
             lr,
             beta1: 0.9,
-            beta2: 0.999,
+            beta2: 0.99,
             epsilon: 1e-8,
             weight_decay: 0.01,
             max_grad_norm: 100.0, // From reference implementation

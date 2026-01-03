@@ -5,6 +5,10 @@
 //!
 //! Exit criteria: >95% hard accuracy
 //! Also validates with gliders and blinkers simulation.
+//!
+//! Options:
+//!   --small  Use smaller model for fast testing
+//!   --full   Run full training without early exit (test limits of training)
 
 use logicars::{
     DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
@@ -15,9 +19,17 @@ use std::time::Instant;
 fn main() {
     println!("=== Phase 1.5: Game of Life Validation ===\n");
 
-    // Use smaller model for faster iteration (can scale up later)
-    let use_small_model = std::env::args().any(|a| a == "--small");
-    
+    // Parse command line args
+    let args: Vec<String> = std::env::args().collect();
+    let use_small_model = args.iter().any(|a| a == "--small");
+    let full_training = args.iter().any(|a| a == "--full");
+
+    // Parse --epochs=N for custom epoch count
+    let custom_epochs: Option<usize> = args.iter()
+        .find(|a| a.starts_with("--epochs="))
+        .and_then(|a| a.strip_prefix("--epochs="))
+        .and_then(|s| s.parse().ok());
+
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
         create_small_model()
@@ -25,6 +37,10 @@ fn main() {
         println!("Using FULL GoL model...\n");
         DiffLogicCA::gol()
     };
+
+    if full_training {
+        println!("⚡ FULL TRAINING MODE: Early exit disabled\n");
+    }
     
     println!("Model architecture:");
     println!("  Perception: {} gates", model.perception.total_gates());
@@ -43,12 +59,19 @@ fn main() {
     println!("  Dead outcomes: {}\n", 512 - alive_count);
 
     // Training loop
-    let max_epochs = if use_small_model { 1000 } else { 5000 };
+    let default_epochs = if use_small_model { 1000 } else { 5000 };
+    let max_epochs = custom_epochs.unwrap_or(default_epochs);
     let target_accuracy = 0.95;
     let eval_interval = if use_small_model { 50 } else { 100 };
 
     println!("Training...");
-    println!("Target: >{:.0}% hard accuracy\n", target_accuracy * 100.0);
+    println!("  Max epochs: {}", max_epochs);
+    if full_training {
+        println!("  Early exit: DISABLED");
+    } else {
+        println!("  Early exit: >{:.0}% accuracy", target_accuracy * 100.0);
+    }
+    println!();
 
     let mut best_accuracy = 0.0;
     let start = Instant::now();
@@ -79,8 +102,15 @@ fn main() {
                 epoch, epoch_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
             );
 
-            if accuracy >= target_accuracy {
+            // Early exit only if not in full training mode
+            if !full_training && accuracy >= target_accuracy {
                 println!("\n🎉 TARGET ACCURACY ACHIEVED!\n");
+                break;
+            }
+
+            // Notify on 100% in full training mode
+            if full_training && accuracy >= 1.0 {
+                println!("\n🎉 100% ACCURACY ACHIEVED!\n");
                 break;
             }
         }
