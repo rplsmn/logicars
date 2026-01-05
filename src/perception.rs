@@ -578,6 +578,115 @@ impl PerceptionModule {
 
         (da, db)
     }
+
+    /// Compute gradients w.r.t. input neighborhood values
+    ///
+    /// Returns gradients for all 9 positions × channels (flat vector)
+    pub fn compute_input_gradients(
+        &self,
+        neighborhood: &NNeighborhood,
+        all_activations: &[Vec<Vec<Vec<f64>>>],
+        output_gradients: &[f64],
+    ) -> Vec<f64> {
+        // Initialize input gradients: 9 positions × channels
+        let mut input_grads = vec![0.0; 9 * self.channels];
+
+        // Skip center cell gradients from output (they come directly from update module)
+        // Center cell is at output positions 0..channels
+        for c in 0..self.channels {
+            // Center cell gradient comes from the center position of output_gradients
+            if c < output_gradients.len() {
+                input_grads[4 * self.channels + c] += output_gradients[c];
+            }
+        }
+
+        // Process each kernel's contribution to input gradients
+        let kernel_output_size = self.kernels[0].output_size();
+        let mut grad_idx = self.channels; // Start after center cell
+
+        for (k, kernel) in self.kernels.iter().enumerate() {
+            for c in 0..self.channels {
+                // Get the channel inputs
+                let channel_inputs: Vec<f64> = (0..9)
+                    .map(|pos| neighborhood.get(pos, c))
+                    .collect();
+
+                // Get output gradients for this kernel's outputs
+                let output_grad: Vec<f64> = output_gradients[grad_idx..grad_idx + kernel_output_size].to_vec();
+                grad_idx += kernel_output_size;
+
+                // Get stored activations for this kernel and channel
+                let activations = &all_activations[k][c];
+
+                // Backpropagate through kernel to get input gradients
+                let kernel_input_grads = self.compute_kernel_input_gradients(
+                    kernel,
+                    &channel_inputs,
+                    activations,
+                    &output_grad,
+                );
+
+                // Accumulate gradients for this channel's 9 positions
+                for pos in 0..9 {
+                    input_grads[pos * self.channels + c] += kernel_input_grads[pos];
+                }
+            }
+        }
+
+        input_grads
+    }
+
+    /// Compute gradients w.r.t. kernel inputs
+    fn compute_kernel_input_gradients(
+        &self,
+        kernel: &PerceptionKernel,
+        inputs: &[f64],
+        activations: &[Vec<f64>],
+        output_gradients: &[f64],
+    ) -> Vec<f64> {
+        let num_layers = kernel.layers.len();
+
+        // Start with output gradients
+        let mut output_grads = output_gradients.to_vec();
+
+        // Backpropagate through layers (from last to first)
+        for layer_idx in (0..num_layers).rev() {
+            let layer = &kernel.layers[layer_idx];
+
+            // Get inputs to this layer
+            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+                inputs.to_vec()
+            } else {
+                activations[layer_idx - 1].clone()
+            };
+
+            // Prepare gradients for previous layer
+            let prev_len = if layer_idx > 0 {
+                activations[layer_idx - 1].len()
+            } else {
+                inputs.len()
+            };
+            let mut prev_output_grads = vec![0.0; prev_len];
+
+            // Compute gradients for each gate
+            for (gate_idx, gate) in layer.gates.iter().enumerate() {
+                let a_idx = layer.wires.a[gate_idx];
+                let b_idx = layer.wires.b[gate_idx];
+                let a = layer_inputs[a_idx];
+                let b = layer_inputs[b_idx];
+                let output_grad = output_grads[gate_idx];
+
+                // Compute gradients w.r.t. inputs for backprop
+                let (da, db) = self.compute_gate_input_gradients(gate, a, b);
+                prev_output_grads[a_idx] += output_grad * da;
+                prev_output_grads[b_idx] += output_grad * db;
+            }
+
+            output_grads = prev_output_grads;
+        }
+
+        output_grads
+    }
 }
 
 /// Compute gradients of operation output w.r.t. its inputs

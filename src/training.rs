@@ -319,39 +319,55 @@ impl TrainingLoop {
         (output, activations)
     }
 
-    /// Train on a single (input, target) grid pair
+    /// Train on a single (input, target) grid pair with multi-step rollout
+    ///
+    /// Runs forward pass for `config.num_steps` iterations, computes loss at final step,
+    /// then backpropagates through all steps (BPTT).
     ///
     /// Returns (soft_loss, hard_loss) matching reference implementation
     pub fn train_step(&mut self, input: &NGrid, target: &NGrid) -> (f64, f64) {
-        // Forward pass (soft mode for training)
-        let (output, activations) = self.forward_grid_soft(input);
+        let num_steps = self.config.num_steps;
 
-        // Compute soft loss
-        let soft_loss = Self::compute_loss(&output, target);
+        // Forward pass through all steps, storing activations for each
+        let mut step_grids: Vec<NGrid> = Vec::with_capacity(num_steps + 1);
+        let mut step_activations: Vec<GridActivations> = Vec::with_capacity(num_steps);
+
+        step_grids.push(input.clone());
+
+        for step in 0..num_steps {
+            let current_grid = &step_grids[step];
+            let (output, activations) = self.forward_grid_soft(current_grid);
+            step_grids.push(output);
+            step_activations.push(activations);
+        }
+
+        // Compute soft loss at final step
+        let final_output = step_grids.last().unwrap();
+        let soft_loss = Self::compute_loss(final_output, target);
 
         // Compute hard loss for monitoring
-        let hard_output = self.step_sync(input);
+        let hard_output = self.run_steps(input, num_steps);
         let hard_loss = Self::compute_loss(&hard_output, target);
 
-        // Compute gradients and update weights
-        self.backward_and_update(input, target, &output, &activations);
+        // Backpropagate through all steps (BPTT)
+        self.backward_through_time(&step_grids, &step_activations, target);
 
         self.iteration += 1;
         (soft_loss, hard_loss)
     }
 
-    /// Backward pass and weight update
-    fn backward_and_update(
+    /// Backpropagation through time for multi-step rollouts
+    fn backward_through_time(
         &mut self,
-        input: &NGrid,
+        step_grids: &[NGrid],
+        step_activations: &[GridActivations],
         target: &NGrid,
-        output: &NGrid,
-        activations: &GridActivations,
     ) {
-        // Accumulate gradients across all cells
-        let num_cells = input.num_cells();
-        
-        // Perception gradients: [kernel][layer][gate] -> [f64; 16]
+        let num_steps = step_activations.len();
+        let num_cells = step_grids[0].num_cells();
+        let channels = step_grids[0].channels;
+
+        // Accumulate gradients across all steps
         let mut perception_grad_accum: Vec<Vec<Vec<[f64; 16]>>> = self
             .model
             .perception
@@ -366,7 +382,6 @@ impl TrainingLoop {
             })
             .collect();
 
-        // Update gradients: [layer][gate] -> [f64; 16]
         let mut update_grad_accum: Vec<Vec<[f64; 16]>> = self
             .model
             .update
@@ -375,77 +390,168 @@ impl TrainingLoop {
             .map(|layer| vec![[0.0; 16]; layer.num_gates()])
             .collect();
 
-        // Process each cell
-        for cell_idx in 0..num_cells {
-            let x = cell_idx % input.width;
-            let y = cell_idx / input.width;
+        // Initialize dL/dgrid at final step: 2 * (output - target)
+        let final_output = &step_grids[num_steps];
+        let mut grid_grads = NGrid::new(
+            final_output.width,
+            final_output.height,
+            final_output.channels,
+            final_output.boundary,
+        );
 
-            // Get target for this cell
-            let target_cell = target.get_cell(x as isize, y as isize);
-            
-            // Get output for this cell
-            let output_cell: Vec<f64> = (0..input.channels)
-                .map(|c| output.get(x as isize, y as isize, c))
-                .collect();
-
-            // Compute output gradients (dL/doutput = 2 * (output - target))
-            let output_grads: Vec<f64> = output_cell
-                .iter()
-                .zip(target_cell.iter())
-                .map(|(o, t)| 2.0 * (o - t))
-                .collect();
-
-            // Backprop through update module
-            let update_grads = self.model.update.compute_gradients(
-                &activations.perception_outputs[cell_idx],
-                &activations.update_activations[cell_idx],
-                &output_grads,
-            );
-
-            // Accumulate update gradients
-            for (layer_idx, layer_grads) in update_grads.iter().enumerate() {
-                for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
-                    for i in 0..16 {
-                        update_grad_accum[layer_idx][gate_idx][i] += gate_grad[i];
-                    }
-                }
-            }
-
-            // Compute gradient w.r.t. perception output
-            let perception_output_grads = self.compute_perception_output_grads(
-                &activations.perception_outputs[cell_idx],
-                &activations.update_activations[cell_idx],
-                &output_grads,
-            );
-
-            // Backprop through perception module
-            let perception_grads = self.model.perception.compute_gradients(
-                &activations.neighborhoods[cell_idx],
-                &activations.perception_activations[cell_idx],
-                &perception_output_grads,
-            );
-
-            // Accumulate perception gradients
-            for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
-                // kernel_grads is [channel][layer][gate]
-                for channel_grads in kernel_grads {
-                    for (layer_idx, layer_grads) in channel_grads.iter().enumerate() {
-                        for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
-                            for i in 0..16 {
-                                perception_grad_accum[kernel_idx][layer_idx][gate_idx][i] +=
-                                    gate_grad[i];
-                            }
-                        }
-                    }
+        for y in 0..final_output.height {
+            for x in 0..final_output.width {
+                for c in 0..channels {
+                    let pred = final_output.get(x as isize, y as isize, c);
+                    let tgt = target.get(x as isize, y as isize, c);
+                    grid_grads.set(x, y, c, 2.0 * (pred - tgt));
                 }
             }
         }
 
-        // Average gradients over cells and channels
-        let scale = 1.0 / (num_cells as f64 * input.channels as f64);
+        // Backpropagate through steps in reverse order
+        for step in (0..num_steps).rev() {
+            let input_grid = &step_grids[step];
+            let activations = &step_activations[step];
 
+            // Gradient w.r.t. previous grid (for chaining to earlier steps)
+            let mut prev_grid_grads = NGrid::new(
+                input_grid.width,
+                input_grid.height,
+                input_grid.channels,
+                input_grid.boundary,
+            );
+
+            // Process each cell
+            for cell_idx in 0..num_cells {
+                let x = cell_idx % input_grid.width;
+                let y = cell_idx / input_grid.width;
+
+                // Get output gradient for this cell
+                let output_grads: Vec<f64> = (0..channels)
+                    .map(|c| grid_grads.get(x as isize, y as isize, c))
+                    .collect();
+
+                // Backprop through update module
+                let update_grads = self.model.update.compute_gradients(
+                    &activations.perception_outputs[cell_idx],
+                    &activations.update_activations[cell_idx],
+                    &output_grads,
+                );
+
+                // Accumulate update gradients
+                for (layer_idx, layer_grads) in update_grads.iter().enumerate() {
+                    for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
+                        for i in 0..16 {
+                            update_grad_accum[layer_idx][gate_idx][i] += gate_grad[i];
+                        }
+                    }
+                }
+
+                // Compute gradient w.r.t. perception output
+                let perception_output_grads = self.compute_perception_output_grads(
+                    &activations.perception_outputs[cell_idx],
+                    &activations.update_activations[cell_idx],
+                    &output_grads,
+                );
+
+                // Backprop through perception module
+                let perception_grads = self.model.perception.compute_gradients(
+                    &activations.neighborhoods[cell_idx],
+                    &activations.perception_activations[cell_idx],
+                    &perception_output_grads,
+                );
+
+                // Accumulate perception gradients
+                for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
+                    for channel_grads in kernel_grads {
+                        for (layer_idx, layer_grads) in channel_grads.iter().enumerate() {
+                            for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
+                                for i in 0..16 {
+                                    perception_grad_accum[kernel_idx][layer_idx][gate_idx][i] +=
+                                        gate_grad[i];
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Compute gradient w.r.t. input grid (for BPTT)
+                // The neighborhood contains 9 cells (center + 8 neighbors)
+                // Gradient flows back to these 9 cells
+                let input_grads = self.compute_input_grads(
+                    &activations.neighborhoods[cell_idx],
+                    &activations.perception_activations[cell_idx],
+                    &perception_output_grads,
+                );
+
+                // Distribute gradients to the 9 neighborhood positions
+                let neighborhood_offsets: [(isize, isize); 9] = [
+                    (-1, -1), (0, -1), (1, -1),
+                    (-1, 0),  (0, 0),  (1, 0),
+                    (-1, 1),  (0, 1),  (1, 1),
+                ];
+
+                for (pos_idx, &(dx, dy)) in neighborhood_offsets.iter().enumerate() {
+                    let nx = x as isize + dx;
+                    let ny = y as isize + dy;
+
+                    // Handle boundaries
+                    let (nx_wrapped, ny_wrapped) = if input_grid.boundary == BoundaryCondition::Periodic {
+                        (
+                            ((nx % input_grid.width as isize) + input_grid.width as isize) as usize % input_grid.width,
+                            ((ny % input_grid.height as isize) + input_grid.height as isize) as usize % input_grid.height,
+                        )
+                    } else {
+                        if nx < 0 || nx >= input_grid.width as isize || ny < 0 || ny >= input_grid.height as isize {
+                            continue; // Skip out-of-bounds cells for non-periodic
+                        }
+                        (nx as usize, ny as usize)
+                    };
+
+                    for c in 0..channels {
+                        let grad_idx = pos_idx * channels + c;
+                        if grad_idx < input_grads.len() {
+                            let current = prev_grid_grads.get(nx_wrapped as isize, ny_wrapped as isize, c);
+                            prev_grid_grads.set(nx_wrapped, ny_wrapped, c, current + input_grads[grad_idx]);
+                        }
+                    }
+                }
+            }
+
+            // Propagate gradients to previous step
+            grid_grads = prev_grid_grads;
+        }
+
+        // Apply gradient updates (averaged over all steps, cells, and channels)
+        let scale = 1.0 / (num_steps as f64 * num_cells as f64 * channels as f64);
+        self.apply_gradients(&perception_grad_accum, &update_grad_accum, scale);
+    }
+
+    /// Compute gradient w.r.t. input neighborhood
+    fn compute_input_grads(
+        &self,
+        neighborhood: &NNeighborhood,
+        perception_activations: &[Vec<Vec<Vec<f64>>>],
+        perception_output_grads: &[f64],
+    ) -> Vec<f64> {
+        // Backpropagate through perception to get gradients w.r.t. input
+        self.model.perception.compute_input_gradients(
+            neighborhood,
+            perception_activations,
+            perception_output_grads,
+        )
+    }
+
+    /// Apply accumulated gradients to model weights
+    fn apply_gradients(
+        &mut self,
+        perception_grads: &[Vec<Vec<[f64; 16]>>],
+        update_grads: &[Vec<[f64; 16]>],
+        scale: f64,
+    ) {
         // Apply updates to perception weights
-        for (kernel_idx, kernel_grads) in perception_grad_accum.iter().enumerate() {
+        for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
             for (layer_idx, layer_grads) in kernel_grads.iter().enumerate() {
                 for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                     let mut clipped = [0.0; 16];
@@ -467,7 +573,7 @@ impl TrainingLoop {
         }
 
         // Apply updates to update weights
-        for (layer_idx, layer_grads) in update_grad_accum.iter().enumerate() {
+        for (layer_idx, layer_grads) in update_grads.iter().enumerate() {
             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                 let mut clipped = [0.0; 16];
                 for i in 0..16 {
@@ -484,7 +590,6 @@ impl TrainingLoop {
             }
         }
     }
-
     /// Compute gradient w.r.t. perception output (for chain rule through update)
     fn compute_perception_output_grads(
         &self,
