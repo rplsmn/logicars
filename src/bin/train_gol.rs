@@ -7,8 +7,10 @@
 //! Also validates with gliders and blinkers simulation.
 //!
 //! Options:
-//!   --small  Use smaller model for fast testing
-//!   --full   Run full training without early exit (test limits of training)
+//!   --small           Use smaller model for fast testing
+//!   --full            Run full training without early exit (test limits of training)
+//!   --epochs=N        Number of epochs to train (default: 5000, 1000 for small)
+//!   --log-interval=N  How often to log accuracy/loss (default: 100, 50 for small)
 
 use logicars::{
     ConnectionType, DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
@@ -30,6 +32,13 @@ fn main() {
         .iter()
         .find(|a| a.starts_with("--epochs="))
         .and_then(|a| a.strip_prefix("--epochs="))
+        .and_then(|s| s.parse().ok());
+
+    // Parse --log-interval=N for custom logging frequency
+    let custom_log_interval: Option<usize> = args
+        .iter()
+        .find(|a| a.starts_with("--log-interval="))
+        .and_then(|a| a.strip_prefix("--log-interval="))
         .and_then(|s| s.parse().ok());
 
     let model = if use_small_model {
@@ -64,10 +73,12 @@ fn main() {
     let default_epochs = if use_small_model { 1000 } else { 5000 };
     let max_epochs = custom_epochs.unwrap_or(default_epochs);
     let target_accuracy = 0.95;
-    let eval_interval = if use_small_model { 50 } else { 100 };
+    let default_log_interval = if use_small_model { 50 } else { 100 };
+    let eval_interval = custom_log_interval.unwrap_or(default_log_interval);
 
     println!("Training...");
     println!("  Max epochs: {}", max_epochs);
+    println!("  Log interval: {} epochs", eval_interval);
     if full_training {
         println!("  Early exit: DISABLED");
     } else {
@@ -100,6 +111,7 @@ fn main() {
         // Evaluate periodically
         if epoch % eval_interval == 0 || epoch == max_epochs - 1 {
             let accuracy = evaluate_accuracy(&trainer.model, &truth_table);
+            let hard_loss = compute_hard_loss(&trainer.model, &truth_table);
             let elapsed = start.elapsed().as_secs_f32();
 
             if accuracy > best_accuracy {
@@ -107,9 +119,10 @@ fn main() {
             }
 
             println!(
-                "Epoch {:5}: Loss = {:.6}, Acc = {:.2}% (best: {:.2}%) [{:.1}s]",
+                "Epoch {:5}: SoftLoss={:.6} HardLoss={:.6} Acc={:.2}% (best={:.2}%) [{:.1}s]",
                 epoch,
                 epoch_loss,
+                hard_loss,
                 accuracy * 100.0,
                 best_accuracy * 100.0,
                 elapsed
@@ -131,8 +144,10 @@ fn main() {
 
     // Final evaluation
     let final_accuracy = evaluate_accuracy(&trainer.model, &truth_table);
+    let final_hard_loss = compute_hard_loss(&trainer.model, &truth_table);
     println!("\nFinal Results:");
     println!("  Hard accuracy: {:.2}%", final_accuracy * 100.0);
+    println!("  Hard loss: {:.6}", final_hard_loss);
     println!("  Target: >{:.0}%", target_accuracy * 100.0);
     println!("  Exit criteria met: {}", final_accuracy >= target_accuracy);
 
@@ -176,6 +191,21 @@ fn evaluate_accuracy(model: &DiffLogicCA, truth_table: &GolTruthTable) -> f64 {
     }
 
     correct as f64 / 512.0
+}
+
+/// Compute hard loss (MSE on argmax outputs) for all 512 configurations
+fn compute_hard_loss(model: &DiffLogicCA, truth_table: &GolTruthTable) -> f64 {
+    let mut total_loss = 0.0;
+
+    for idx in 0..512 {
+        let neighborhood = NNeighborhood::from_gol_index(idx);
+        let output = model.forward_hard(&neighborhood);
+        let target = if truth_table.target(idx) { 1.0 } else { 0.0 };
+        let error = output[0] - target;
+        total_loss += error * error;
+    }
+
+    total_loss / 512.0
 }
 
 /// Test blinker oscillator (period 2)
