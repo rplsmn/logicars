@@ -33,6 +33,9 @@ pub mod training;
 // Phase 2.1: Checkerboard
 pub mod checkerboard;
 
+// Hard Circuit Export (Phase 3.2)
+pub mod circuit;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;
@@ -77,6 +80,14 @@ pub use checkerboard::{
     CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
     CHECKERBOARD_ASYNC_STEPS,
+};
+pub use circuit::{
+    HardGate,
+    HardLayer,
+    HardKernel,
+    HardPerception,
+    HardUpdate,
+    HardCircuit,
 };
 
 // Old modules (from failed attempt - kept for reference)
