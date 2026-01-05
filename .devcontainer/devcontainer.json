@@ -1,0 +1,25 @@
+{
+  "name": "logicars - Rust Devcontainer (Podman)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "mounts": [
+    "source=logicars_cargo_target,target=/home/positron/.cargo/target,type=volume",
+    "source=logicars_cargo_registry,target=/home/positron/.cargo/registry,type=volume",
+    "source=logicars_rustup,target=/home/positron/.rustup,type=volume"
+  ],
+  "postCreateCommand": "rustup default stable && rustup component add clippy rustfmt rust-src && cargo build --release",
+  "containerEnv": {
+    "DOCKER_HOST": "unix:///run/podman/podman.sock"
+  },
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash",
+    "dev.containers.dockerPath": "/usr/bin/podman",
+    "remote.containers.dockerPath": "/usr/bin/podman"
+  },
+  "extensions": [
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb"
+  ],
+  "remoteUser": "positron"
+}
