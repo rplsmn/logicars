@@ -95,7 +95,7 @@ cargo run --bin train_checkerboard --release -- --small # Quick test
 - ⬜ Generalizes 16×16 → 64×64
 
 ### Next Action
-Run: `cargo run --bin train_checkerboard --release -- --epochs 500`
+Run full model: `cargo run --bin train_checkerboard --release -- --epochs 500`
 
 ---
 
@@ -112,6 +112,30 @@ Run: `cargo run --bin train_checkerboard --release -- --epochs 500`
 - `feature/hard-soft-loss-separation` - train_gol improvements
 - `feature/hard-circuit-export` - circuit serialization module
 
+### Checkerboard Training Results (Small Model)
+
+**Command**: `cargo run --bin train_checkerboard --release -- --small --epochs 100`
+
+| Metric | Result |
+|--------|--------|
+| Model | 728 gates (small) |
+| Best accuracy | 57.03% |
+| Final accuracy | 50.98% |
+| Time | 932s (~15 min) |
+
+**Problem observed**: Soft loss decreases (1687→78) but hard loss oscillates wildly (100↔1900). Accuracy stuck at ~50% (random).
+
+**Diagnosis**: Soft probabilities not converging to discrete decisions. Gates remain probabilistic mixtures.
+
+**Potential fixes to investigate**:
+1. Lower learning rate (0.01 instead of 0.05)
+2. Use full model (4800 gates vs 728)
+3. Temperature annealing to sharpen softmax over training
+4. Add `--lr=` flag for experimentation
+
+### Background Run
+Full model training started: `cargo run --bin train_checkerboard --release -- --epochs 500`
+
 ---
 
-**Last Updated**: 2026-01-03
+**Last Updated**: 2026-01-05
