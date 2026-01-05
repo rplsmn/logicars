@@ -2,7 +2,7 @@
 
 > Compact log for LLM agents. Full history: `agents/archive/`
 
-## Current State (2026-01-03)
+## Current State (2026-01-05)
 
 **Phase 2.1 🚧 IN PROGRESS** | GoL complete (99.41%), Checkerboard infra ready
 
@@ -11,6 +11,7 @@
 - Phase 1.1-1.4: NGrid, Perception, Update, Training modules
 - Phase 1.5: GoL 99.41% accuracy, blinker/glider work
 - Phase 2.1: Checkerboard infrastructure built, needs training
+- Phase 3.2: Hard circuit export with serialization ✅
 
 ### Code Structure
 ```
@@ -20,17 +21,19 @@ src/
 ├── update.rs         # UpdateModule, DiffLogicCA, trainers
 ├── training.rs       # TrainingLoop, TrainingConfig, sync/async
 ├── checkerboard.rs   # Checkerboard patterns, models, loss functions
+├── circuit.rs        # HardCircuit export, serialization (NEW)
 ├── phase_0_*.rs      # Foundation: BinaryOp, GateLayer, Circuit
 ├── optimizer.rs      # AdamW (β2=0.99)
 └── bin/
-    ├── train_gol.rs         # GoL training
+    ├── train_gol.rs         # GoL training (soft/hard loss, --log-interval)
     └── train_checkerboard.rs # Checkerboard training
 ```
 
 ### Key Commands
 ```bash
-cargo test --lib                                        # 118 tests
+cargo test --lib                                        # 127 tests
 cargo run --bin train_gol --release -- --full           # GoL full training
+cargo run --bin train_gol --release -- --log-interval=50  # Custom log interval
 cargo run --bin train_checkerboard --release            # Checkerboard (long)
 cargo run --bin train_checkerboard --release -- --small # Quick test
 ```
@@ -85,7 +88,7 @@ cargo run --bin train_checkerboard --release -- --small # Quick test
 - Pattern generation: `create_checkerboard()`, `create_random_seed()`
 - Model: 728 gates (small) / ~4800 gates (full)
 - Training binary: 16×16 grid, 20-step rollout, non-periodic
-- Tests: 118 passing
+- Tests: 127 passing
 
 ### Exit Criteria
 - ⬜ Pattern emerges from seed
@@ -93,6 +96,21 @@ cargo run --bin train_checkerboard --release -- --small # Quick test
 
 ### Next Action
 Run: `cargo run --bin train_checkerboard --release -- --epochs 500`
+
+---
+
+## Session 2026-01-05: Hard/Soft Loss & Circuit Export
+
+### Changes Made
+1. **train_gol.rs**: Added `--log-interval=N` flag and separate soft/hard loss display
+2. **circuit.rs**: NEW - Hard circuit export with JSON serialization
+   - `HardCircuit::from_soft(model)` - converts trained model
+   - `circuit.active_gate_count()` - excludes pass-through gates (A, B)
+   - `circuit.save(path)` / `HardCircuit::load(path)` - persistence
+
+### Branches Created
+- `feature/hard-soft-loss-separation` - train_gol improvements
+- `feature/hard-circuit-export` - circuit serialization module
 
 ---
 
