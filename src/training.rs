@@ -38,6 +38,9 @@ pub struct TrainingConfig {
     pub fire_rate: f64,
     /// Use periodic (toroidal) boundaries
     pub periodic: bool,
+    /// Which channel to compute loss on (None = all channels, Some(c) = only channel c)
+    /// For multi-channel experiments like checkerboard, loss is only on channel 0.
+    pub loss_channel: Option<usize>,
 }
 
 impl Default for TrainingConfig {
@@ -49,6 +52,7 @@ impl Default for TrainingConfig {
             async_training: false,
             fire_rate: FIRE_RATE,
             periodic: true,
+            loss_channel: None, // All channels for GoL (C=1)
         }
     }
 }
@@ -63,6 +67,7 @@ impl TrainingConfig {
             async_training: false,
             fire_rate: FIRE_RATE,
             periodic: true,
+            loss_channel: None, // All channels (C=1)
         }
     }
 
@@ -75,6 +80,7 @@ impl TrainingConfig {
             async_training: false,
             fire_rate: FIRE_RATE,
             periodic: false,
+            loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
         }
     }
 
@@ -87,6 +93,7 @@ impl TrainingConfig {
             async_training: true,
             fire_rate: FIRE_RATE,
             periodic: false,
+            loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
         }
     }
 }
@@ -266,6 +273,26 @@ impl TrainingLoop {
             .sum()
     }
 
+    /// Compute MSE loss on a single channel only
+    ///
+    /// For multi-channel experiments like checkerboard, loss is only on the pattern channel.
+    pub fn compute_loss_channel(predicted: &NGrid, target: &NGrid, channel: usize) -> f64 {
+        assert_eq!(predicted.width, target.width);
+        assert_eq!(predicted.height, target.height);
+        assert!(channel < predicted.channels);
+        assert!(channel < target.channels);
+
+        let mut loss = 0.0;
+        for y in 0..predicted.height {
+            for x in 0..predicted.width {
+                let pred = predicted.get(x as isize, y as isize, channel);
+                let tgt = target.get(x as isize, y as isize, channel);
+                loss += (pred - tgt).powi(2);
+            }
+        }
+        loss
+    }
+
     /// Compute mean squared error (average over all values)
     pub fn compute_mse(predicted: &NGrid, target: &NGrid) -> f64 {
         let loss = Self::compute_loss(predicted, target);
@@ -341,13 +368,19 @@ impl TrainingLoop {
             step_activations.push(activations);
         }
 
-        // Compute soft loss at final step
+        // Compute soft loss at final step (channel-specific if configured)
         let final_output = step_grids.last().unwrap();
-        let soft_loss = Self::compute_loss(final_output, target);
+        let soft_loss = match self.config.loss_channel {
+            Some(c) => Self::compute_loss_channel(final_output, target, c),
+            None => Self::compute_loss(final_output, target),
+        };
 
         // Compute hard loss for monitoring
         let hard_output = self.run_steps(input, num_steps);
-        let hard_loss = Self::compute_loss(&hard_output, target);
+        let hard_loss = match self.config.loss_channel {
+            Some(c) => Self::compute_loss_channel(&hard_output, target, c),
+            None => Self::compute_loss(&hard_output, target),
+        };
 
         // Backpropagate through all steps (BPTT)
         self.backward_through_time(&step_grids, &step_activations, target);
@@ -391,6 +424,7 @@ impl TrainingLoop {
             .collect();
 
         // Initialize dL/dgrid at final step: 2 * (output - target)
+        // If loss_channel is set, only compute gradient for that channel
         let final_output = &step_grids[num_steps];
         let mut grid_grads = NGrid::new(
             final_output.width,
@@ -402,9 +436,22 @@ impl TrainingLoop {
         for y in 0..final_output.height {
             for x in 0..final_output.width {
                 for c in 0..channels {
-                    let pred = final_output.get(x as isize, y as isize, c);
-                    let tgt = target.get(x as isize, y as isize, c);
-                    grid_grads.set(x, y, c, 2.0 * (pred - tgt));
+                    // Only compute gradient for loss channel (if configured)
+                    let grad = match self.config.loss_channel {
+                        Some(loss_c) if loss_c == c => {
+                            let pred = final_output.get(x as isize, y as isize, c);
+                            let tgt = target.get(x as isize, y as isize, c);
+                            2.0 * (pred - tgt)
+                        }
+                        Some(_) => 0.0, // Not the loss channel, no gradient
+                        None => {
+                            // All channels contribute to loss
+                            let pred = final_output.get(x as isize, y as isize, c);
+                            let tgt = target.get(x as isize, y as isize, c);
+                            2.0 * (pred - tgt)
+                        }
+                    };
+                    grid_grads.set(x, y, c, grad);
                 }
             }
         }
@@ -523,8 +570,13 @@ impl TrainingLoop {
             grid_grads = prev_grid_grads;
         }
 
-        // Apply gradient updates (averaged over all steps, cells, and channels)
-        let scale = 1.0 / (num_steps as f64 * num_cells as f64 * channels as f64);
+        // Apply gradient updates (averaged over all steps, cells, and loss channels)
+        // If loss_channel is set, only 1 channel contributes; otherwise all channels
+        let effective_channels = match self.config.loss_channel {
+            Some(_) => 1,
+            None => channels,
+        };
+        let scale = 1.0 / (num_steps as f64 * num_cells as f64 * effective_channels as f64);
         self.apply_gradients(&perception_grad_accum, &update_grad_accum, scale);
     }
 
@@ -833,6 +885,39 @@ mod tests {
         assert_relative_eq!(mse, 0.25); // 0.5^2 = 0.25
     }
 
+    #[test]
+    fn test_compute_loss_channel() {
+        // Create multi-channel grids
+        let mut grid1 = NGrid::periodic(2, 2, 8);
+        let mut grid2 = NGrid::periodic(2, 2, 8);
+
+        // Channel 0: all 0s vs all 1s = loss of 4.0 (4 cells × 1.0²)
+        // Channels 1-7: mixed but should be ignored
+        for y in 0..2 {
+            for x in 0..2 {
+                grid1.set(x, y, 0, 0.0);
+                grid2.set(x, y, 0, 1.0);
+                
+                // Set other channels to random values
+                for c in 1..8 {
+                    grid1.set(x, y, c, 0.5);
+                    grid2.set(x, y, c, 0.3);
+                }
+            }
+        }
+
+        // Total loss (all channels)
+        let total_loss = TrainingLoop::compute_loss(&grid1, &grid2);
+        // Channel 0: 4 * 1.0² = 4.0
+        // Channels 1-7: 7 * 4 * 0.2² = 7 * 4 * 0.04 = 1.12
+        // Total: 5.12
+        assert!(total_loss > 5.0 && total_loss < 5.3, "Total loss = {}", total_loss);
+
+        // Channel 0 only loss
+        let ch0_loss = TrainingLoop::compute_loss_channel(&grid1, &grid2, 0);
+        assert_relative_eq!(ch0_loss, 4.0); // 4 cells × (0-1)² = 4
+    }
+
     // ==================== Step Tests ====================
 
     fn create_small_model() -> DiffLogicCA {
@@ -1055,6 +1140,47 @@ mod tests {
 
         let (loss, _) = training.train_step(&input, &target);
         assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn test_training_multichannel_channel0_loss() {
+        // Test that loss_channel works correctly for multi-channel training
+        let perception = PerceptionModule::new(
+            8,  // channels
+            2,  // kernels
+            &[9, 8, 4, 2, 1],
+            &[
+                ConnectionType::FirstKernel,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+            ],
+        );
+        let update = UpdateModule::new(&[24, 12, 8, 8]);
+        let model = DiffLogicCA::new(perception, update);
+
+        // Use channel 0 only loss (like checkerboard)
+        let mut config = TrainingConfig::default();
+        config.loss_channel = Some(0);
+
+        let mut training = TrainingLoop::new(model, config);
+
+        // Create grids - channel 0 has pattern, others are "working memory"
+        let input = NGrid::periodic(3, 3, 8);
+        let mut target = NGrid::periodic(3, 3, 8);
+        
+        // Set target channel 0 only
+        target.set(1, 1, 0, 1.0);
+        
+        // Other channels in target are 0, but they shouldn't affect loss
+        // because we're only training on channel 0
+
+        let (loss, _) = training.train_step(&input, &target);
+        assert!(loss >= 0.0);
+        
+        // Loss should be based only on channel 0 (1 cell differs = 1.0)
+        // The exact value depends on model output, but should be small
+        assert!(loss <= 10.0, "Loss should be reasonable for 9 cells on ch0 only");
     }
 
     #[test]
