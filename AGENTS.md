@@ -216,10 +216,6 @@ And let me know the final accuracy achieved.
 
 ### Completion Protocol
 
-After a step/phase is successful:
-
-1. **Ask for greenlight**: "Ready to commit. Proceed?"
-2. **If yes**: Commit, push to new branch, and open PR
-3. **If no**: Wait for additional instructions
-
-Use the gh cli utility to manage interactions with Github
+After a step/phase is successful: commit, push to new branch, and open PR
+Use the gh cli utility to manage interactions with Github.
+Wait for the PR to be reviewed and new instructions.
