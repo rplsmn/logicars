@@ -4,6 +4,11 @@
 //! Uses 8-bit state (8 channels), non-periodic boundaries, 20-step rollout.
 //!
 //! This is the first multi-channel experiment, validating the N-bit architecture.
+//!
+//! Options:
+//!   --small           Use smaller model for fast testing
+//!   --epochs=N        Number of epochs to train (default: 500, 100 for small)
+//!   --log-interval=N  How often to log accuracy/loss (default: 50, 10 for small)
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
@@ -18,12 +23,34 @@ fn main() {
     println!("=== Phase 2.1: Checkerboard Sync Training ===\n");
 
     // Parse command line args
-    let use_small_model = std::env::args().any(|a| a == "--small");
-    let epochs: usize = std::env::args()
-        .position(|a| a == "--epochs")
-        .and_then(|i| std::env::args().nth(i + 1))
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(if use_small_model { 100 } else { 500 });
+    let args: Vec<String> = std::env::args().collect();
+    let use_small_model = args.iter().any(|a| a == "--small");
+
+    // Parse --epochs=N for custom epoch count
+    let custom_epochs: Option<usize> = args
+        .iter()
+        .find(|a| a.starts_with("--epochs="))
+        .and_then(|a| a.strip_prefix("--epochs="))
+        .and_then(|s| s.parse().ok());
+
+    // Also support --epochs N format for backwards compatibility
+    let epochs: usize = custom_epochs.unwrap_or_else(|| {
+        args.iter()
+            .position(|a| a == "--epochs")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(if use_small_model { 100 } else { 500 })
+    });
+
+    // Parse --log-interval=N for custom logging frequency
+    let custom_log_interval: Option<usize> = args
+        .iter()
+        .find(|a| a.starts_with("--log-interval="))
+        .and_then(|a| a.strip_prefix("--log-interval="))
+        .and_then(|s| s.parse().ok());
+
+    let default_log_interval = if use_small_model { 10 } else { 50 };
+    let eval_interval = custom_log_interval.unwrap_or(default_log_interval);
 
     // Create model
     let model = if use_small_model {
@@ -50,6 +77,7 @@ fn main() {
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
     println!("  Steps per epoch: {}", config.num_steps);
     println!("  Epochs: {}", epochs);
+    println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
     println!();
 
@@ -68,7 +96,6 @@ fn main() {
              CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_SQUARE_SIZE);
 
     // Training loop
-    let eval_interval = if use_small_model { 10 } else { 50 };
     let mut best_accuracy = 0.0;
     let start = Instant::now();
     let mut rng = SimpleRng::new(23); // Match reference seed

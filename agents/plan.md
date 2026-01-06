@@ -11,6 +11,8 @@
 | 2.3 | ⬜ | Growing Lizard C=128 |
 | 2.4 | ⬜ | Colored G C=64 |
 | 3.x | ⬜ | Library API, serialization |
+| 4.4 | ⬜ | Performance optimization (rayon, SIMD, batching) |
+| 5.x | ⬜ | Ecosystem (PyO3, WASM, GPU) |
 
 **Current Focus**: Phase 2.1 - Checkerboard training
 
@@ -134,6 +136,32 @@ Most complex circuit:
 ### 4.3 Inverse Problems
 - Given behavior → find rule
 - Self-healing optimization
+
+### 4.4 Performance Optimization
+
+**Current state**: Rust CPU implementation ~10-15x slower than JAX GPU.
+This is expected - JAX runs optimized GPU kernels while we run sequential CPU code.
+
+**Optimization roadmap** (in order of effort/impact):
+
+| Optimization | Speedup | Effort | Notes |
+|--------------|---------|--------|-------|
+| `--release` build | 5-10x | Done ✅ | Always use for training |
+| `rayon` parallelization | 4-8x | Low | Parallel cell processing |
+| Batch training | 2x | Medium | Match reference batch_size=2 |
+| SIMD gate operations | 2-4x | Medium | `std::simd` or `packed_simd` |
+| Memory pooling | 1.5x | Low | Avoid allocations in hot loops |
+| GPU acceleration | 10-50x | High | `wgpu` or CUDA bindings |
+
+**Priority order**:
+1. **rayon** - Easy win, parallelize the cell loop in `forward_grid_soft`
+2. **Batch training** - Also improves gradient stability
+3. **SIMD** - Vectorize gate operations (16 ops computed together)
+4. **Memory** - Profile and eliminate allocations
+5. **GPU** - Only if CPU optimizations insufficient
+
+**Target**: Match or beat JAX CPU performance (2-5x faster than JAX on CPU).
+GPU parity is a stretch goal for Phase 5.
 
 ---
 

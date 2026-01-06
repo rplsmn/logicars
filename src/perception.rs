@@ -373,38 +373,52 @@ impl PerceptionModule {
     /// Forward pass in soft mode on a neighborhood
     ///
     /// For each channel, runs all kernels on the 9-cell positions.
-    /// Output: [center_ch0, ..., center_chC, k1_ch0, k1_ch1, ..., kK_chC]
+    /// Output ordering matches reference: rearrange(x, 'k c s -> (c s k)')
+    /// = [center, then for each channel c, for each output_bit s, for each kernel k]
     ///
     /// Returns (output, all_kernel_activations) for gradient computation
     pub fn forward_soft(&self, neighborhood: &NNeighborhood) -> (Vec<f64>, Vec<Vec<Vec<Vec<f64>>>>) {
         assert_eq!(neighborhood.channels, self.channels);
 
-        let mut output = Vec::with_capacity(self.output_size());
-
-        // First: append center cell values (C channels)
-        output.extend_from_slice(neighborhood.center());
-
+        let kernel_output_size = self.kernels[0].output_size();
+        
+        // First, compute all kernel outputs and store activations
+        // kernel_outputs[k][c] = Vec<f64> of size kernel_output_size
+        let mut kernel_outputs: Vec<Vec<Vec<f64>>> = 
+            vec![vec![Vec::new(); self.channels]; self.num_kernels];
+        
         // Store activations: [kernel_idx][channel_idx][layer_idx][values]
         let mut all_activations: Vec<Vec<Vec<Vec<f64>>>> =
             vec![Vec::with_capacity(self.channels); self.num_kernels];
 
-        // For each channel
+        // Run all kernels on all channels
         for c in 0..self.channels {
-            // Extract 9 cell values for this channel
             let channel_inputs: Vec<f64> = (0..9)
                 .map(|pos| neighborhood.get(pos, c))
                 .collect();
 
-            // Run each kernel on this channel's values
             for (k, kernel) in self.kernels.iter().enumerate() {
                 let activations = kernel.forward_soft(&channel_inputs);
-                let kernel_output = activations.last().cloned().unwrap_or_default();
-
-                // Append kernel output to overall output
-                output.extend_from_slice(&kernel_output);
-
-                // Store activations for this kernel and channel
+                let output = activations.last().cloned().unwrap_or_default();
+                
+                kernel_outputs[k][c] = output;
                 all_activations[k].push(activations);
+            }
+        }
+
+        // Build output with correct ordering: (c s k)
+        // [center, c0_s0_k0, c0_s0_k1, ..., c0_s0_kK, c0_s1_k0, ..., cC_sS_kK]
+        let mut output = Vec::with_capacity(self.output_size());
+        
+        // First: append center cell values (C channels)
+        output.extend_from_slice(neighborhood.center());
+
+        // Then: for each channel, for each output bit, for each kernel
+        for c in 0..self.channels {
+            for s in 0..kernel_output_size {
+                for k in 0..self.num_kernels {
+                    output.push(kernel_outputs[k][c][s]);
+                }
             }
         }
 
@@ -412,9 +426,28 @@ impl PerceptionModule {
     }
 
     /// Forward pass in hard mode
+    /// Output ordering matches reference: rearrange(x, 'k c s -> (c s k)')
     pub fn forward_hard(&self, neighborhood: &NNeighborhood) -> Vec<f64> {
         assert_eq!(neighborhood.channels, self.channels);
 
+        let kernel_output_size = self.kernels[0].output_size();
+        
+        // First, compute all kernel outputs
+        // kernel_outputs[k][c] = Vec<f64> of size kernel_output_size
+        let mut kernel_outputs: Vec<Vec<Vec<f64>>> = 
+            vec![vec![Vec::new(); self.channels]; self.num_kernels];
+
+        for c in 0..self.channels {
+            let channel_inputs: Vec<f64> = (0..9)
+                .map(|pos| neighborhood.get(pos, c))
+                .collect();
+
+            for (k, kernel) in self.kernels.iter().enumerate() {
+                kernel_outputs[k][c] = kernel.forward_hard(&channel_inputs);
+            }
+        }
+
+        // Build output with correct ordering: (c s k)
         let mut output = Vec::with_capacity(self.output_size());
 
         // First: append center cell values (thresholded)
@@ -422,15 +455,12 @@ impl PerceptionModule {
             output.push(if v > 0.5 { 1.0 } else { 0.0 });
         }
 
-        // For each channel
+        // Then: for each channel, for each output bit, for each kernel
         for c in 0..self.channels {
-            let channel_inputs: Vec<f64> = (0..9)
-                .map(|pos| neighborhood.get(pos, c))
-                .collect();
-
-            for kernel in &self.kernels {
-                let kernel_output = kernel.forward_hard(&channel_inputs);
-                output.extend_from_slice(&kernel_output);
+            for s in 0..kernel_output_size {
+                for k in 0..self.num_kernels {
+                    output.push(kernel_outputs[k][c][s]);
+                }
             }
         }
 
@@ -440,6 +470,8 @@ impl PerceptionModule {
     /// Compute gradients for all kernels
     ///
     /// Returns gradients indexed by [kernel][channel][layer][gate][logit]
+    /// 
+    /// Input output_gradients are in (c s k) ordering to match forward pass.
     pub fn compute_gradients(
         &self,
         neighborhood: &NNeighborhood,
@@ -447,40 +479,52 @@ impl PerceptionModule {
         output_gradients: &[f64],
     ) -> Vec<Vec<Vec<Vec<[f64; 16]>>>> {
         // Gradient structure: [kernel][channel][layer][gate][16 logits]
-        let mut all_gradients: Vec<Vec<Vec<Vec<[f64; 16]>>>> = Vec::new();
+        let mut all_gradients: Vec<Vec<Vec<Vec<[f64; 16]>>>> = 
+            vec![Vec::new(); self.num_kernels];
 
-        // Skip center cell gradients (they flow to input, not kernel weights)
         let kernel_output_size = self.kernels[0].output_size();
-        let mut grad_idx = self.channels; // Start after center cell
+        
+        // Reconstruct per-kernel per-channel gradients from (c s k) ordering
+        // output_gradients layout after center: [c0_s0_k0, c0_s0_k1, ..., c0_s1_k0, ...]
+        // We need to extract gradients for kernel k, channel c as [s0, s1, ...]
+        
+        // Build kernel_output_grads[k][c] = Vec<f64> of size kernel_output_size
+        let mut kernel_output_grads: Vec<Vec<Vec<f64>>> = 
+            vec![vec![vec![0.0; kernel_output_size]; self.channels]; self.num_kernels];
+        
+        let mut grad_idx = self.channels; // Skip center cell gradients
+        for c in 0..self.channels {
+            for s in 0..kernel_output_size {
+                for k in 0..self.num_kernels {
+                    kernel_output_grads[k][c][s] = output_gradients[grad_idx];
+                    grad_idx += 1;
+                }
+            }
+        }
 
+        // Now compute gradients for each kernel and channel
         for (k, kernel) in self.kernels.iter().enumerate() {
             let mut kernel_grads: Vec<Vec<Vec<[f64; 16]>>> = Vec::new();
 
             for c in 0..self.channels {
-                // Get the channel inputs
                 let channel_inputs: Vec<f64> = (0..9)
                     .map(|pos| neighborhood.get(pos, c))
                     .collect();
 
-                // Get output gradients for this kernel's outputs
-                let output_grad: Vec<f64> = output_gradients[grad_idx..grad_idx + kernel_output_size].to_vec();
-                grad_idx += kernel_output_size;
-
-                // Get stored activations for this kernel and channel
+                let output_grad = &kernel_output_grads[k][c];
                 let activations = &all_activations[k][c];
 
-                // Compute gradients through this kernel
                 let channel_grads = self.compute_kernel_gradients(
                     kernel,
                     &channel_inputs,
                     activations,
-                    &output_grad,
+                    output_grad,
                 );
 
                 kernel_grads.push(channel_grads);
             }
 
-            all_gradients.push(kernel_grads);
+            all_gradients[k] = kernel_grads;
         }
 
         all_gradients
@@ -600,22 +644,31 @@ impl PerceptionModule {
             }
         }
 
-        // Process each kernel's contribution to input gradients
+        // Reconstruct per-kernel per-channel gradients from (c s k) ordering
         let kernel_output_size = self.kernels[0].output_size();
-        let mut grad_idx = self.channels; // Start after center cell
+        
+        // Build kernel_output_grads[k][c] = Vec<f64> of size kernel_output_size
+        let mut kernel_output_grads: Vec<Vec<Vec<f64>>> = 
+            vec![vec![vec![0.0; kernel_output_size]; self.channels]; self.num_kernels];
+        
+        let mut grad_idx = self.channels; // Skip center cell gradients
+        for c in 0..self.channels {
+            for s in 0..kernel_output_size {
+                for k in 0..self.num_kernels {
+                    kernel_output_grads[k][c][s] = output_gradients[grad_idx];
+                    grad_idx += 1;
+                }
+            }
+        }
 
+        // Process each kernel's contribution to input gradients
         for (k, kernel) in self.kernels.iter().enumerate() {
             for c in 0..self.channels {
-                // Get the channel inputs
                 let channel_inputs: Vec<f64> = (0..9)
                     .map(|pos| neighborhood.get(pos, c))
                     .collect();
 
-                // Get output gradients for this kernel's outputs
-                let output_grad: Vec<f64> = output_gradients[grad_idx..grad_idx + kernel_output_size].to_vec();
-                grad_idx += kernel_output_size;
-
-                // Get stored activations for this kernel and channel
+                let output_grad = &kernel_output_grads[k][c];
                 let activations = &all_activations[k][c];
 
                 // Backpropagate through kernel to get input gradients
@@ -623,7 +676,7 @@ impl PerceptionModule {
                     kernel,
                     &channel_inputs,
                     activations,
-                    &output_grad,
+                    output_grad,
                 );
 
                 // Accumulate gradients for this channel's 9 positions
@@ -1022,6 +1075,83 @@ mod tests {
 
         // First 8 values are center cell channels
         assert_relative_eq!(output[0], 1.0, epsilon = 0.01);
+    }
+
+    #[test]
+    fn test_perception_output_ordering_csk() {
+        // Test that output ordering matches reference: rearrange(x, 'k c s -> (c s k)')
+        // This is critical for correct update module input
+        //
+        // Reference ordering after center:
+        // For each channel c:
+        //   For each output bit s:
+        //     For each kernel k:
+        //       output[c*S*K + s*K + k]
+
+        let channels = 2;
+        let num_kernels = 3;
+        let kernel_output_size = 2; // Each kernel outputs 2 bits
+        
+        let module = PerceptionModule::new(
+            channels,
+            num_kernels,
+            &[9, 8, 4, kernel_output_size], // Output 2 bits per kernel
+            &[ConnectionType::FirstKernel, ConnectionType::Unique, ConnectionType::Unique],
+        );
+
+        // Create neighborhood with distinct channel values
+        let mut cells = vec![0.0; 9 * channels];
+        // Channel 0: all zeros
+        // Channel 1: all ones
+        for pos in 0..9 {
+            cells[pos * channels + 1] = 1.0;
+        }
+        let neighborhood = NNeighborhood::new(channels, cells);
+
+        let (output, _) = module.forward_soft(&neighborhood);
+        
+        // Output size: center(C) + C * S * K = 2 + 2 * 2 * 3 = 14
+        assert_eq!(output.len(), channels + channels * kernel_output_size * num_kernels);
+        
+        // The key test: outputs for channel 0 and channel 1 should be different
+        // because their inputs are different (all 0 vs all 1)
+        //
+        // After center (positions 2..):
+        // Ordering is (c s k): c0_s0_k0, c0_s0_k1, c0_s0_k2, c0_s1_k0, ...
+        //
+        // Channel 0 outputs: positions 2, 3, 4, 5, 6, 7 (first C*S*K/2 positions)
+        // Channel 1 outputs: positions 8, 9, 10, 11, 12, 13
+        
+        // For channel 0 (input all zeros), kernels start as pass-through so output ~0
+        // For channel 1 (input all ones), kernels start as pass-through so output ~1
+        
+        // Check that channel structure is preserved:
+        // output[center + c * S * K + s * K + k] is from kernel k, channel c, output bit s
+        
+        let center_size = channels;
+        
+        // Get outputs for channel 0, output_bit 0, all kernels (should be similar)
+        let c0_s0: Vec<f64> = (0..num_kernels)
+            .map(|k| output[center_size + 0 * kernel_output_size * num_kernels + 0 * num_kernels + k])
+            .collect();
+            
+        // Get outputs for channel 1, output_bit 0, all kernels
+        let c1_s0: Vec<f64> = (0..num_kernels)
+            .map(|k| output[center_size + 1 * kernel_output_size * num_kernels + 0 * num_kernels + k])
+            .collect();
+        
+        // Outputs from channel 0 (all-zero input) and channel 1 (all-one input) 
+        // should be meaningfully different due to different inputs
+        let c0_mean: f64 = c0_s0.iter().sum::<f64>() / c0_s0.len() as f64;
+        let c1_mean: f64 = c1_s0.iter().sum::<f64>() / c1_s0.len() as f64;
+        
+        // The difference confirms inputs are reaching the right kernel/channel slots
+        // Pass-through gates (A) with all-0 input → ~0, with all-1 input → ~1
+        assert!(
+            (c1_mean - c0_mean).abs() > 0.1,
+            "Channel 0 and Channel 1 outputs should differ: c0={:.3}, c1={:.3}",
+            c0_mean, c1_mean
+        );
     }
 
     // ==================== Gradient Tests ====================

@@ -1020,6 +1020,61 @@ mod tests {
         assert!(loss >= 0.0);
     }
 
+    #[test]
+    fn test_multi_step_rollout() {
+        // Test that multi-step training (BPTT) works correctly
+        let model = create_small_model();
+        let mut config = TrainingConfig::gol();
+        config.num_steps = 3; // 3-step rollout
+
+        let mut training = TrainingLoop::new(model, config);
+
+        let input = NGrid::periodic(3, 3, 1);
+        let mut target = NGrid::periodic(3, 3, 1);
+        target.set(1, 1, 0, 1.0);
+
+        // Should complete without panic
+        let (soft_loss, hard_loss) = training.train_step(&input, &target);
+        
+        assert!(soft_loss >= 0.0, "Soft loss should be non-negative");
+        assert!(hard_loss >= 0.0, "Hard loss should be non-negative");
+    }
+
+    #[test]
+    fn test_non_periodic_boundaries() {
+        // Test training with non-periodic (zero-padded) boundaries
+        let model = create_small_model();
+        let mut config = TrainingConfig::gol();
+        config.periodic = false;
+
+        let mut training = TrainingLoop::new(model, config);
+
+        // Use non-periodic grid
+        let input = NGrid::new(3, 3, 1, BoundaryCondition::NonPeriodic);
+        let target = NGrid::new(3, 3, 1, BoundaryCondition::NonPeriodic);
+
+        let (loss, _) = training.train_step(&input, &target);
+        assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn test_perception_output_size_multichannel() {
+        // Verify perception output size calculation for multi-channel
+        let perception = PerceptionModule::new(
+            8,   // channels
+            16,  // kernels
+            &[9, 8, 4, 2], // 2 output bits per kernel
+            &[
+                ConnectionType::FirstKernel,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+            ],
+        );
+
+        // Expected: center(8) + kernels(16) * output_bits(2) * channels(8) = 8 + 256 = 264
+        assert_eq!(perception.output_size(), 264);
+    }
+
     // ==================== Accuracy Evaluation ====================
 
     #[test]
