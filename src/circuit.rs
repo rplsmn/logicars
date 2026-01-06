@@ -429,4 +429,23 @@ mod tests {
         // So active count should be less than total
         assert!(circuit.active_gate_count() <= circuit.total_gate_count());
     }
+
+    #[test]
+    fn test_hard_circuit_multichannel() {
+        // Test circuit export with multi-channel model (like checkerboard)
+        use crate::checkerboard::{create_small_checkerboard_model};
+        
+        let model = create_small_checkerboard_model();
+        let circuit = HardCircuit::from_soft(&model);
+
+        // Verify multi-channel properties
+        assert_eq!(circuit.channels, 8);
+        assert!(circuit.total_gate_count() > 0);
+        
+        // Serialization should work with multi-channel
+        let json = circuit.to_json().unwrap();
+        let loaded = HardCircuit::from_json(&json).unwrap();
+        assert_eq!(loaded.channels, 8);
+        assert_eq!(loaded.total_gate_count(), circuit.total_gate_count());
+    }
 }

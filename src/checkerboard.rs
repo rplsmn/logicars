@@ -391,4 +391,56 @@ mod tests {
         assert!(!config.async_training);
         assert!(!config.periodic);
     }
+
+    #[test]
+    fn test_checkerboard_loss_soft_values() {
+        // Test loss with soft (probabilistic) values
+        let target = create_checkerboard(4, 1, 8);
+        
+        // Prediction with 0.5 everywhere (maximum uncertainty)
+        let mut uncertain = NGrid::new(4, 4, 8, BoundaryCondition::NonPeriodic);
+        for y in 0..4 {
+            for x in 0..4 {
+                uncertain.set(x, y, 0, 0.5);
+            }
+        }
+        
+        let loss = compute_checkerboard_loss(&uncertain, &target);
+        // Half cells are 0, half are 1. (0.5-0)^2 = 0.25, (0.5-1)^2 = 0.25
+        // Average: 0.25
+        assert!((loss - 0.25).abs() < 1e-10, "Uncertain prediction should have loss ~0.25, got {}", loss);
+    }
+
+    #[test]
+    fn test_checkerboard_accuracy_different_sizes() {
+        // Test that accuracy works with different grid sizes (generalization test)
+        let small_target = create_checkerboard(16, 2, 8);
+        let small_pred = create_checkerboard(16, 2, 8);
+        let small_acc = compute_checkerboard_accuracy(&small_pred, &small_target);
+        assert!((small_acc - 1.0).abs() < 1e-10);
+
+        let large_target = create_checkerboard(64, 2, 8);
+        let large_pred = create_checkerboard(64, 2, 8);
+        let large_acc = compute_checkerboard_accuracy(&large_pred, &large_target);
+        assert!((large_acc - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_full_checkerboard_model_input_output_sizes() {
+        // Verify the full model has correct input/output sizes matching reference
+        let model = create_checkerboard_model();
+
+        // Perception: 16 kernels, [9→8→4→2] = 14 gates per kernel, 16*14 = 224 gates
+        assert_eq!(model.perception.num_kernels, 16);
+        assert_eq!(model.perception.channels, 8);
+        
+        // Perception output: center(8) + kernels(16) * output_bits(2) * channels(8) = 264
+        assert_eq!(model.perception.output_size(), 264);
+        
+        // Update input should match perception output
+        assert_eq!(model.update.input_size, 264);
+        
+        // Update output should be 8 channels
+        assert_eq!(model.update.output_channels, 8);
+    }
 }
