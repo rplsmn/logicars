@@ -4,71 +4,16 @@
 
 **IMPORTANT**: Before starting any work on this project, always read the documents in the `agents/` folder if it exists:
 
-1. **`agents/plan.md`** - Full development roadmap and phase requirements
-2. **`agents/implementation-log.md`** - Implementation history, learnings, and what's next
-3. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers (read this first!)
+1. **`agents/INDEX.md`** - **READ FIRST** - Code index with file:line references. Search here before grepping codebase.
+2. **`agents/plan.md`** - Full development roadmap and phase requirements
+3. **`agents/implementation-log.md`** - Implementation state, learnings, and what's next
+4. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers
+
+**Token-saving tip**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
-### If the `agents/` folder doesn't exist
-
-Create it and add the two key documents:
-
-```bash
-mkdir agents
-```
-
-#### 1. Create `agents/plan.md` (Development Roadmap)
-
-This document should contain:
-
-- **Project overview**: What you're building and primary references (papers, implementations)
-- **Phased development plan**: Break the work into distinct phases with clear goals
-- **Exit criteria for each phase**: Specific, measurable conditions that must be met before proceeding
-- **Key implementation details**: Important algorithms, hyperparameters, architectural decisions
-- **Risk mitigation strategies**: What could go wrong and how to handle it
-- **Critical success factors**: Principles to follow (e.g., "verify before proceeding", "test first")
-
-Structure example:
-
-```markdown
-# Project Name Development Roadmap
-
-## Primary References
-- [Link to paper/docs]
-- [Link to reference implementation]
-
-## Phase 0: Foundation
-**Goal**: [What this phase accomplishes]
-
-### 0.1 First Component
-- What to implement
-- **Exit criteria**: Specific tests/metrics that must pass
-
-### 0.2 Second Component
-...
-
-## Phase 1: Core Feature
-...
-```
-
 #### 2. Create `agents/implementation-log.md` (Progress & Learnings)
-
-This document should contain:
-
-- **Development workflow**: The proven pattern for completing phases
-- **Phase completion records**: For each completed phase:
-  - Date and status
-  - What was implemented (with file locations)
-  - Test results and metrics
-  - Exit criteria verification (✅ or ❌)
-  - Key technical decisions and rationale
-  - Important learnings and gotchas
-  - Commands for next developer
-- **Code organization**: Current project structure
-- **Common patterns**: Reusable code patterns (testing, training, etc.)
-- **Questions for later**: Issues to address in future phases
-- **Next steps**: Clear direction for what comes next
 
 Structure example:
 
@@ -76,11 +21,15 @@ Structure example:
 # Project Name Implementation Log
 
 ## Development Workflow (PROVEN PATTERN)
-1. Create Todo List
+1. Create TodoList and, if on main, create a branch
 2. Write unit tests first
+3. Work until all success / exit criteria are met and tests all pass
+4. Compare implementations to reference intent (paper) and code (reference/.py or reference/*.ipynb)
+5. Commit every time something new works, meaning the 4 previous steps are complete, push it and open a PR if not yet opened
 ...
 
-## Phase 0.1: First Component ✅ COMPLETE
+## Phase 0.1: First Component
+### Task : Description of atomic task
 
 **Date**: YYYY-MM-DD
 **Status**: ALL EXIT CRITERIA MET
@@ -125,21 +74,20 @@ Structure example:
 As the project progresses, these documents can become unwieldy. **Periodically review and compact them**:
 
 **For `implementation-log.md`:**
-- Completed phases can be summarized once stable (keep key learnings, remove verbose details)
+- Completed phases can be removed once stable (keep key learnings if useful for later phases)
 - Collapse multiple phase sections into summary tables when appropriate
-- Archive very old detailed logs to a separate `agents/archive/` folder if needed
-- The most recent 2-3 phases should remain detailed; older phases can be condensed
 
 **For `plan.md`:**
+- Most of the time, doesn't need updatges
 - Remove or update phases that no longer apply due to architectural changes
-- Mark completed phases with ✅ and collapse their details
+- Mark completed phases with ✅
 - Update exit criteria if experience shows they were unrealistic or need adjustment
 - Remove speculative future phases that are no longer relevant
 
 **When to compact:**
 - When documents exceed ~500 lines and become hard to scan
 - When major architectural decisions invalidate earlier plans
-- When starting a new major phase (good time to archive the old)
+- When starting a new major phase
 - When multiple sessions have added incremental updates that can be consolidated
 
 ## Quick Reference
@@ -167,8 +115,6 @@ cargo run --bin train_layer --release
 
 This project implements differentiable logic gates for learning cellular automata rules (particularly Conway's Game of Life) based on the paper [Differentiable Logic Cellular Automata](https://google-research.github.io/self-organising-systems/difflogic-ca/).
 
-The `archive/` folder contains old, outdated implementations kept for documentation purposes only.
-
 ### Key Implementation Details
 
 - **Soft decoding**: `softmax(weights)` during training (differentiable)
@@ -190,23 +136,24 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 5. Run `cargo test --lib` continuously
 6. Create integration test binary if needed
 7. Verify all exit criteria met
-8. Update `agents/implementation-log.md`
-9. **Ask for greenlight** before committing
-10. Commit with detailed message
-11. ALWAYS Push changes to dedicated /branch and create PR
+8. Update and compact `agents/implementation-log.md` to keep it current but 100-150 lines maximum
+9. Commit with detailed message, never to main.
+10. Push changes and create PR when successful at a step (exit / success criteria validated).
 
 ### Long-Running Tasks
 
-For any task projected to take **over 60 seconds** (e.g., full model training, large test suites):
+For any task that are not generative, e.g. model training, large test suites:
 
 1. **Do NOT run it yourself** - it will timeout or block progress
 2. **Provide the command** to the human with clear instructions
 3. **Wait for feedback** - the human will run it and report results
-4. **Continue based on results** - adjust approach if needed
+4. **Complete all your other independant work before handing off**
+5. **Continue based on results** - adjust approach if needed
 
 Example:
 
 ```
+I've committed and pushed the changes. A training run is needed to observe the results.
 This training will take ~30 minutes. Please run:
 
     cargo run --bin train_gol --release
@@ -216,6 +163,6 @@ And let me know the final accuracy achieved.
 
 ### Completion Protocol
 
-After a step/phase is successful: commit, push to new branch, and open PR
 Use the gh cli utility to manage interactions with Github.
-Wait for the PR to be reviewed and new instructions.
+When working on a new phase / task independant of the previous one, create a new dedicated branch
+The human in the loop is responsible for reviewing your work through the PR's
