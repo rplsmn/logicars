@@ -81,6 +81,7 @@ fn main() {
 
     // Create config
     let config = TrainingConfig::checkerboard_sync();
+    let batch_size = config.batch_size;
     println!("Training configuration:");
     println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
@@ -88,6 +89,7 @@ fn main() {
     println!("  Epochs: {}", epochs);
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
+    println!("  Batch size: {}", batch_size);
     println!();
 
     // Create training loop
@@ -112,15 +114,17 @@ fn main() {
     println!("Training...\n");
 
     for epoch in 0..epochs {
-        // Create random seed for this epoch
-        let input = create_random_seed(
-            CHECKERBOARD_GRID_SIZE,
-            CHECKERBOARD_CHANNELS,
-            &mut rng,
-        );
+        // Create batch of random seeds for this epoch
+        let inputs: Vec<_> = (0..batch_size)
+            .map(|_| create_random_seed(
+                CHECKERBOARD_GRID_SIZE,
+                CHECKERBOARD_CHANNELS,
+                &mut rng,
+            ))
+            .collect();
 
-        // Train step (multi-step rollout with loss at final step)
-        let (soft_loss, hard_loss) = training_loop.train_step(&input, &target);
+        // Train step with batch (multi-step rollout with loss at final step)
+        let (soft_loss, hard_loss) = training_loop.train_step_batch(&inputs, &target);
 
         // Evaluate periodically
         if epoch % eval_interval == 0 || epoch == epochs - 1 {

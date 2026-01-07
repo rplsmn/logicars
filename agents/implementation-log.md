@@ -2,16 +2,16 @@
 
 > Compact log for LLM agents. Full history: `agents/archive/`
 
-## Current State (2026-01-06)
+## Current State (2026-01-07)
 
-**Phase 2.1 🚧 IN PROGRESS** | Critical bug fixed - loss now computed on channel 0 only
+**Phase 2.1 🚧 IN PROGRESS** | Batch training implemented, matching reference
 
 ### What's Done
 
 - Phase 0: Gate primitives, backprop verified
 - Phase 1.1-1.4: NGrid, Perception, Update, Training modules
 - Phase 1.5: GoL 99.41% accuracy, blinker/glider work
-- Phase 2.1: Checkerboard infrastructure built, **critical bug fixed**
+- Phase 2.1: Checkerboard infrastructure built, **batch training added**
 
 ### Code Structure
 
@@ -20,20 +20,20 @@ src/
 ├── grid.rs           # NGrid (C=1-128), NNeighborhood, BoundaryCondition
 ├── perception.rs     # PerceptionModule, PerceptionKernel, connections
 ├── update.rs         # UpdateModule, DiffLogicCA, trainers
-├── training.rs       # TrainingLoop, TrainingConfig, sync/async, loss_channel
+├── training.rs       # TrainingLoop, TrainingConfig, batch training, loss_channel
 ├── checkerboard.rs   # Checkerboard patterns, models, loss functions
 ├── circuit.rs        # HardCircuit export, serialization
 ├── phase_0_*.rs      # Foundation: BinaryOp, GateLayer, Circuit
 ├── optimizer.rs      # AdamW (β2=0.99)
 └── bin/
     ├── train_gol.rs         # GoL training (soft/hard loss, --log-interval)
-    └── train_checkerboard.rs # Checkerboard training (--log-interval, --epochs=N)
+    └── train_checkerboard.rs # Checkerboard training (batch_size=2)
 ```
 
 ### Key Commands
 
 ```bash
-cargo test --lib                                              # 137 tests
+cargo test --lib                                              # 143 tests
 cargo run --bin train_gol --release -- --full                 # GoL full training
 cargo run --bin train_checkerboard --release -- --epochs=500  # Checkerboard (long)
 cargo run --bin train_checkerboard --release -- --small       # Quick test
@@ -485,6 +485,69 @@ cargo test --lib  # 139 passed
 |---------|------|-------|
 | Gate ordering | `src/phase_0_1.rs` | 68-90 (BinaryOp::ALL) |
 | Gate initialization | `src/phase_0_1.rs` | 103-119 |
-| Gradient debug | `src/training.rs` | 694-728 |
+| Batch training | `src/training.rs` | 355-445 (train_step_batch) |
 | Training binary | `src/bin/train_checkerboard.rs` | Full file |
 | Code index | `agents/INDEX.md` | Full file (use this first!) |
+
+---
+
+## Session 2026-01-07: Batch Training Implementation
+
+### What Was Done
+
+Implemented batch training to match reference implementation's `batch_size=2` for checkerboard.
+
+### Analysis of checkerboard_loss.png
+
+The 200-epoch plateau in hard loss is **expected behavior**:
+1. Gates start with pass-through (logit=10.0, prob≈99.99%)
+2. Soft loss decreases as outputs drift to 0.5 (minimizing MSE)
+3. Hard loss stays high because discretization picks pass-through
+4. Around epoch 200, gate logits finally escape pass-through
+5. Both losses then converge together
+
+### Changes Made
+
+1. **training.rs**:
+   - Added `batch_size` field to `TrainingConfig`
+   - Added `train_step_batch()` method that accumulates gradients across samples
+   - Refactored `backward_through_time()` → `accumulate_gradients()` 
+   - `train_step()` now delegates to `train_step_batch(&[input])`
+
+2. **train_checkerboard.rs**:
+   - Now creates batch of `batch_size` random seeds per epoch
+   - Uses `train_step_batch()` for training
+
+3. **Batch sizes from reference**:
+   - GoL: batch_size=20
+   - Checkerboard sync: batch_size=2
+   - Checkerboard async: batch_size=1
+
+### Why Batch Training Matters
+
+- Provides more gradient variance (different random seeds each sample)
+- Helps escape local minima faster
+- May shorten the 200-epoch plateau
+
+### Tests Added
+
+- `test_batch_size_in_configs` - verifies correct batch sizes
+- `test_train_step_batch` - basic batch training works
+- `test_train_step_batch_loss_accumulates` - loss sums across batch
+- `test_train_step_equivalence` - train_step = train_step_batch with 1 sample
+
+Total: 143 tests passing
+
+### Next Steps
+
+Run training to see if batch training improves convergence:
+
+```bash
+cargo run --bin train_checkerboard --release -- --small --epochs=100 --log-interval=10
+```
+
+Expected: The 200-epoch plateau may be shortened with batch_size=2.
+
+---
+
+**Last Updated**: 2026-01-07

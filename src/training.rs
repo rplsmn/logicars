@@ -41,6 +41,9 @@ pub struct TrainingConfig {
     /// Which channel to compute loss on (None = all channels, Some(c) = only channel c)
     /// For multi-channel experiments like checkerboard, loss is only on channel 0.
     pub loss_channel: Option<usize>,
+    /// Batch size for training (default: 1, reference uses 2 for checkerboard)
+    /// Larger batches provide more gradient variance, helping escape local minima.
+    pub batch_size: usize,
 }
 
 impl Default for TrainingConfig {
@@ -53,6 +56,7 @@ impl Default for TrainingConfig {
             fire_rate: FIRE_RATE,
             periodic: true,
             loss_channel: None, // All channels for GoL (C=1)
+            batch_size: 1,
         }
     }
 }
@@ -68,6 +72,7 @@ impl TrainingConfig {
             fire_rate: FIRE_RATE,
             periodic: true,
             loss_channel: None, // All channels (C=1)
+            batch_size: 20, // Reference uses batch_size=20 for GoL
         }
     }
 
@@ -81,6 +86,7 @@ impl TrainingConfig {
             fire_rate: FIRE_RATE,
             periodic: false,
             loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
+            batch_size: 2, // Reference uses batch_size=2 for checkerboard
         }
     }
 
@@ -94,6 +100,7 @@ impl TrainingConfig {
             fire_rate: FIRE_RATE,
             periodic: false,
             loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
+            batch_size: 1, // Reference uses batch_size=1 for async
         }
     }
 }
@@ -353,56 +360,95 @@ impl TrainingLoop {
     ///
     /// Returns (soft_loss, hard_loss) matching reference implementation
     pub fn train_step(&mut self, input: &NGrid, target: &NGrid) -> (f64, f64) {
-        let num_steps = self.config.num_steps;
-
-        // Forward pass through all steps, storing activations for each
-        let mut step_grids: Vec<NGrid> = Vec::with_capacity(num_steps + 1);
-        let mut step_activations: Vec<GridActivations> = Vec::with_capacity(num_steps);
-
-        step_grids.push(input.clone());
-
-        for step in 0..num_steps {
-            let current_grid = &step_grids[step];
-            let (output, activations) = self.forward_grid_soft(current_grid);
-            step_grids.push(output);
-            step_activations.push(activations);
-        }
-
-        // Compute soft loss at final step (channel-specific if configured)
-        let final_output = step_grids.last().unwrap();
-        let soft_loss = match self.config.loss_channel {
-            Some(c) => Self::compute_loss_channel(final_output, target, c),
-            None => Self::compute_loss(final_output, target),
-        };
-
-        // Compute hard loss for monitoring
-        let hard_output = self.run_steps(input, num_steps);
-        let hard_loss = match self.config.loss_channel {
-            Some(c) => Self::compute_loss_channel(&hard_output, target, c),
-            None => Self::compute_loss(&hard_output, target),
-        };
-
-        // Backpropagate through all steps (BPTT)
-        self.backward_through_time(&step_grids, &step_activations, target);
-
-        self.iteration += 1;
-        (soft_loss, hard_loss)
+        // Delegate to batch training with batch_size=1
+        self.train_step_batch(&[input.clone()], target)
     }
 
-    /// Backpropagation through time for multi-step rollouts
-    fn backward_through_time(
-        &mut self,
-        step_grids: &[NGrid],
-        step_activations: &[GridActivations],
-        target: &NGrid,
-    ) {
-        let num_steps = step_activations.len();
-        let num_cells = step_grids[0].num_cells();
-        let channels = step_grids[0].channels;
+    /// Train on a batch of inputs with the same target (multi-step rollout)
+    ///
+    /// This matches the reference implementation's batch training:
+    /// - Forward pass each sample through `config.num_steps` iterations
+    /// - Sum loss across all samples in the batch
+    /// - Accumulate gradients across all samples
+    /// - Apply gradient update once at the end
+    ///
+    /// The batch provides gradient variance which helps escape local minima.
+    /// Reference uses batch_size=2 for checkerboard sync.
+    ///
+    /// Returns (soft_loss, hard_loss) summed over the batch
+    pub fn train_step_batch(&mut self, inputs: &[NGrid], target: &NGrid) -> (f64, f64) {
+        let num_steps = self.config.num_steps;
+        let batch_size = inputs.len();
 
-        // Accumulate gradients across all steps
-        let mut perception_grad_accum: Vec<Vec<Vec<[f64; 16]>>> = self
-            .model
+        // Initialize gradient accumulators
+        let mut perception_grad_accum = self.create_perception_grad_accum();
+        let mut update_grad_accum = self.create_update_grad_accum();
+
+        let mut total_soft_loss = 0.0;
+        let mut total_hard_loss = 0.0;
+
+        // Process each sample in the batch
+        for input in inputs {
+            // Forward pass through all steps, storing activations for each
+            let mut step_grids: Vec<NGrid> = Vec::with_capacity(num_steps + 1);
+            let mut step_activations: Vec<GridActivations> = Vec::with_capacity(num_steps);
+
+            step_grids.push(input.clone());
+
+            for step in 0..num_steps {
+                let current_grid = &step_grids[step];
+                let (output, activations) = self.forward_grid_soft(current_grid);
+                step_grids.push(output);
+                step_activations.push(activations);
+            }
+
+            // Compute soft loss at final step (channel-specific if configured)
+            let final_output = step_grids.last().unwrap();
+            let soft_loss = match self.config.loss_channel {
+                Some(c) => Self::compute_loss_channel(final_output, target, c),
+                None => Self::compute_loss(final_output, target),
+            };
+            total_soft_loss += soft_loss;
+
+            // Compute hard loss for monitoring
+            let hard_output = self.run_steps(input, num_steps);
+            let hard_loss = match self.config.loss_channel {
+                Some(c) => Self::compute_loss_channel(&hard_output, target, c),
+                None => Self::compute_loss(&hard_output, target),
+            };
+            total_hard_loss += hard_loss;
+
+            // Accumulate gradients for this sample (do not apply yet)
+            self.accumulate_gradients(
+                &step_grids,
+                &step_activations,
+                target,
+                &mut perception_grad_accum,
+                &mut update_grad_accum,
+            );
+        }
+
+        // Apply accumulated gradients once for the entire batch
+        // Reference uses scale=1.0 (raw sum loss, not averaged)
+        let scale = 1.0;
+        self.apply_gradients(&perception_grad_accum, &update_grad_accum, scale);
+
+        // Debug output for batch training
+        let debug_enabled = std::env::var("LOGICARS_DEBUG").map(|v| v == "1").unwrap_or(false);
+        if debug_enabled && self.iteration % 10 == 0 {
+            eprintln!(
+                "[DEBUG iter={}] batch_size={}, total_soft_loss={:.4}, total_hard_loss={:.4}",
+                self.iteration, batch_size, total_soft_loss, total_hard_loss
+            );
+        }
+
+        self.iteration += 1;
+        (total_soft_loss, total_hard_loss)
+    }
+
+    /// Create empty gradient accumulator for perception module
+    fn create_perception_grad_accum(&self) -> Vec<Vec<Vec<[f64; 16]>>> {
+        self.model
             .perception
             .kernels
             .iter()
@@ -413,15 +459,34 @@ impl TrainingLoop {
                     .map(|layer| vec![[0.0; 16]; layer.num_gates()])
                     .collect()
             })
-            .collect();
+            .collect()
+    }
 
-        let mut update_grad_accum: Vec<Vec<[f64; 16]>> = self
-            .model
+    /// Create empty gradient accumulator for update module
+    fn create_update_grad_accum(&self) -> Vec<Vec<[f64; 16]>> {
+        self.model
             .update
             .layers
             .iter()
             .map(|layer| vec![[0.0; 16]; layer.num_gates()])
-            .collect();
+            .collect()
+    }
+
+    /// Accumulate gradients through time for multi-step rollouts (BPTT)
+    ///
+    /// This computes gradients for one sample and ADDS them to the provided accumulators.
+    /// Used for batch training: accumulate across samples, then apply once.
+    fn accumulate_gradients(
+        &self,
+        step_grids: &[NGrid],
+        step_activations: &[GridActivations],
+        target: &NGrid,
+        perception_grad_accum: &mut Vec<Vec<Vec<[f64; 16]>>>,
+        update_grad_accum: &mut Vec<Vec<[f64; 16]>>,
+    ) {
+        let num_steps = step_activations.len();
+        let num_cells = step_grids[0].num_cells();
+        let channels = step_grids[0].channels;
 
         // Initialize dL/dgrid at final step: 2 * (output - target)
         // If loss_channel is set, only compute gradient for that channel
@@ -433,12 +498,6 @@ impl TrainingLoop {
             final_output.boundary,
         );
 
-        // DEBUG: Track output and gradient statistics
-        let mut output_sum = 0.0f64;
-        let mut output_min = f64::INFINITY;
-        let mut output_max = f64::NEG_INFINITY;
-        let mut loss_grad_sum = 0.0f64;
-
         for y in 0..final_output.height {
             for x in 0..final_output.width {
                 for c in 0..channels {
@@ -447,13 +506,6 @@ impl TrainingLoop {
                         Some(loss_c) if loss_c == c => {
                             let pred = final_output.get(x as isize, y as isize, c);
                             let tgt = target.get(x as isize, y as isize, c);
-                            
-                            // DEBUG: Track output stats
-                            output_sum += pred;
-                            output_min = output_min.min(pred);
-                            output_max = output_max.max(pred);
-                            loss_grad_sum += (2.0 * (pred - tgt)).abs();
-                            
                             2.0 * (pred - tgt)
                         }
                         Some(_) => 0.0, // Not the loss channel, no gradient
@@ -461,31 +513,12 @@ impl TrainingLoop {
                             // All channels contribute to loss
                             let pred = final_output.get(x as isize, y as isize, c);
                             let tgt = target.get(x as isize, y as isize, c);
-                            
-                            // DEBUG: Track output stats
-                            output_sum += pred;
-                            output_min = output_min.min(pred);
-                            output_max = output_max.max(pred);
-                            loss_grad_sum += (2.0 * (pred - tgt)).abs();
-                            
                             2.0 * (pred - tgt)
                         }
                     };
                     grid_grads.set(x, y, c, grad);
                 }
             }
-        }
-
-        // DEBUG: Print output and initial gradient stats (enabled via LOGICARS_DEBUG=1)
-        let debug_enabled = std::env::var("LOGICARS_DEBUG").map(|v| v == "1").unwrap_or(false);
-        if debug_enabled && self.iteration % 10 == 0 {
-            let effective_channels = self.config.loss_channel.map(|_| 1).unwrap_or(channels);
-            let num_outputs = num_cells * effective_channels;
-            let output_avg = output_sum / num_outputs as f64;
-            eprintln!(
-                "[DEBUG iter={}] outputs: min={:.4}, max={:.4}, avg={:.4} | loss_grad_sum={:.4}",
-                self.iteration, output_min, output_max, output_avg, loss_grad_sum
-            );
         }
 
         // Backpropagate through steps in reverse order
@@ -601,13 +634,7 @@ impl TrainingLoop {
             // Propagate gradients to previous step
             grid_grads = prev_grid_grads;
         }
-
-        // Apply gradient updates
-        // Reference implementation: loss = sum over cells of (pred - target)^2
-        // Gradient is computed on the raw sum, NOT averaged.
-        // We use scale=1.0 to match reference behavior.
-        let scale = 1.0;
-        self.apply_gradients(&perception_grad_accum, &update_grad_accum, scale);
+        // Gradients now accumulated in the passed-in accumulators
     }
 
     /// Compute gradient w.r.t. input neighborhood
@@ -632,6 +659,33 @@ impl TrainingLoop {
         update_grads: &[Vec<[f64; 16]>],
         scale: f64,
     ) {
+        // Compute global gradient norm for proper clipping (matching optax.clip)
+        let mut global_norm_sq = 0.0f64;
+        for kernel_grads in perception_grads.iter() {
+            for layer_grads in kernel_grads.iter() {
+                for gate_grad in layer_grads.iter() {
+                    for &g in gate_grad.iter() {
+                        global_norm_sq += (g * scale) * (g * scale);
+                    }
+                }
+            }
+        }
+        for layer_grads in update_grads.iter() {
+            for gate_grad in layer_grads.iter() {
+                for &g in gate_grad.iter() {
+                    global_norm_sq += (g * scale) * (g * scale);
+                }
+            }
+        }
+        let global_norm = global_norm_sq.sqrt();
+        
+        // Global norm clipping coefficient (like optax.clip(100.0))
+        let clip_coef = if global_norm > self.config.gradient_clip {
+            self.config.gradient_clip / global_norm
+        } else {
+            1.0
+        };
+
         // DEBUG: Track gradient statistics
         let mut total_grad_sum = 0.0f64;
         let mut max_grad = 0.0f64;
@@ -644,10 +698,10 @@ impl TrainingLoop {
         for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
             for (layer_idx, layer_grads) in kernel_grads.iter().enumerate() {
                 for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
-                    let mut clipped = [0.0; 16];
+                    let mut scaled = [0.0; 16];
                     for i in 0..16 {
-                        let g = gate_grad[i] * scale;
-                        clipped[i] = g.clamp(-self.config.gradient_clip, self.config.gradient_clip);
+                        let g = gate_grad[i] * scale * clip_coef;
+                        scaled[i] = g;
                         total_grad_sum += g.abs();
                         max_grad = max_grad.max(g.abs());
                         num_grads += 1;
@@ -662,7 +716,7 @@ impl TrainingLoop {
                         &mut self.model.perception.kernels[kernel_idx].layers[layer_idx].gates
                             [gate_idx]
                             .logits,
-                        &clipped,
+                        &scaled,
                     );
 
                     if !sample_taken {
@@ -676,10 +730,10 @@ impl TrainingLoop {
         // Apply updates to update weights
         for (layer_idx, layer_grads) in update_grads.iter().enumerate() {
             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
-                let mut clipped = [0.0; 16];
+                let mut scaled = [0.0; 16];
                 for i in 0..16 {
-                    let g = gate_grad[i] * scale;
-                    clipped[i] = g.clamp(-self.config.gradient_clip, self.config.gradient_clip);
+                    let g = gate_grad[i] * scale * clip_coef;
+                    scaled[i] = g;
                     total_grad_sum += g.abs();
                     max_grad = max_grad.max(g.abs());
                     num_grads += 1;
@@ -687,7 +741,7 @@ impl TrainingLoop {
 
                 self.update_optimizers[layer_idx][gate_idx].step(
                     &mut self.model.update.layers[layer_idx].gates[gate_idx].logits,
-                    &clipped,
+                    &scaled,
                 );
             }
         }
@@ -723,8 +777,8 @@ impl TrainingLoop {
             let total_gates = op_counts.iter().sum::<usize>();
             let pass_through_pct = 100.0 * op_counts[3] as f64 / total_gates as f64;
             eprintln!(
-                "[DEBUG iter={}] grads: avg={:.6}, max={:.6} | weight[0] delta={:.6} | pass-through: {:.1}%",
-                self.iteration, avg_grad, max_grad, weight_delta, pass_through_pct
+                "[DEBUG iter={}] global_norm={:.4}, clip_coef={:.4} | grads: avg={:.6}, max={:.6} | pass-through: {:.1}%",
+                self.iteration, global_norm, clip_coef, avg_grad, max_grad, pass_through_pct
             );
         }
     }
@@ -1305,5 +1359,93 @@ mod tests {
         
         // Just verify it's a valid accuracy value
         assert!(accuracy >= 0.0 && accuracy <= 1.0);
+    }
+
+    // ==================== Batch Training Tests ====================
+
+    #[test]
+    fn test_batch_size_in_configs() {
+        let gol = TrainingConfig::gol();
+        assert_eq!(gol.batch_size, 20, "GoL should use batch_size=20");
+
+        let sync = TrainingConfig::checkerboard_sync();
+        assert_eq!(sync.batch_size, 2, "Checkerboard sync should use batch_size=2");
+
+        let async_config = TrainingConfig::checkerboard_async();
+        assert_eq!(async_config.batch_size, 1, "Checkerboard async should use batch_size=1");
+    }
+
+    #[test]
+    fn test_train_step_batch() {
+        let model = create_small_model();
+        let config = TrainingConfig::default();
+        let mut training = TrainingLoop::new(model, config);
+
+        // Create a batch of 3 inputs
+        let input1 = NGrid::periodic(3, 3, 1);
+        let input2 = NGrid::periodic(3, 3, 1);
+        let mut input3 = NGrid::periodic(3, 3, 1);
+        input3.set(1, 1, 0, 1.0);
+
+        let mut target = NGrid::periodic(3, 3, 1);
+        target.set(1, 1, 0, 1.0);
+
+        // Train step with batch
+        let (soft_loss, hard_loss) = training.train_step_batch(
+            &[input1, input2, input3],
+            &target,
+        );
+
+        // Loss should be summed across batch (3x larger than single sample)
+        assert!(soft_loss >= 0.0, "Soft loss should be non-negative");
+        assert!(hard_loss >= 0.0, "Hard loss should be non-negative");
+    }
+
+    #[test]
+    fn test_train_step_batch_loss_accumulates() {
+        let model = create_small_model();
+        let config = TrainingConfig::default();
+        
+        // Train with batch_size=1
+        let mut training1 = TrainingLoop::new(model.clone(), config.clone());
+        let input = NGrid::periodic(3, 3, 1);
+        let mut target = NGrid::periodic(3, 3, 1);
+        target.set(1, 1, 0, 1.0);
+        
+        let (loss1, _) = training1.train_step_batch(&[input.clone()], &target);
+
+        // Train with same input duplicated (batch_size=2)
+        let mut training2 = TrainingLoop::new(model.clone(), config.clone());
+        let (loss2, _) = training2.train_step_batch(
+            &[input.clone(), input.clone()],
+            &target,
+        );
+
+        // With identical inputs, batch of 2 should have ~2x the loss
+        assert!(
+            (loss2 / loss1 - 2.0).abs() < 0.01,
+            "Batch loss should be ~2x single loss: {} vs {}",
+            loss2, loss1
+        );
+    }
+
+    #[test]
+    fn test_train_step_equivalence() {
+        // train_step should be equivalent to train_step_batch with batch_size=1
+        let model = create_small_model();
+        let config = TrainingConfig::default();
+        
+        let mut training1 = TrainingLoop::new(model.clone(), config.clone());
+        let mut training2 = TrainingLoop::new(model.clone(), config.clone());
+
+        let input = NGrid::periodic(3, 3, 1);
+        let mut target = NGrid::periodic(3, 3, 1);
+        target.set(1, 1, 0, 1.0);
+
+        let (loss1, hard1) = training1.train_step(&input, &target);
+        let (loss2, hard2) = training2.train_step_batch(&[input.clone()], &target);
+
+        assert_relative_eq!(loss1, loss2, epsilon = 1e-10);
+        assert_relative_eq!(hard1, hard2, epsilon = 1e-10);
     }
 }
