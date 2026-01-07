@@ -318,3 +318,116 @@ cargo run --bin train_checkerboard --release -- --small --epochs=100 --log-inter
 ---
 
 **Last Updated**: 2026-01-07
+
+---
+
+## Session 2026-01-07: Zero-Padding Fix & Gradient Scale=1.0
+
+### Problem
+
+Training still showed identical loss numbers after previous fixes. Investigation revealed two more issues:
+
+### Issue 1: NonPeriodic Boundary Handling Bug
+
+**Root Cause**: `get_cell()` and `get_cell_array()` in `grid.rs` called `resolve_coords()` directly, bypassing the zero-padding check in `get()`. The `neighborhood()` function uses `get_cell()`, so boundary cells were NOT getting zero-padded neighbors.
+
+**The bug (in `get_cell`):**
+```rust
+pub fn get_cell(&self, x: isize, y: isize) -> Vec<f64> {
+    let (x, y) = self.resolve_coords(x, y);  // Clamps to edge, doesn't return zeros!
+    // ...
+}
+```
+
+**Fix Applied**: Added zero-padding check to BOTH `get_cell()` and `get_cell_array()`:
+```rust
+pub fn get_cell(&self, x: isize, y: isize) -> Vec<f64> {
+    if self.boundary == BoundaryCondition::NonPeriodic {
+        if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
+            return vec![0.0; self.channels];
+        }
+    }
+    let (x, y) = self.resolve_coords(x, y);
+    // ...
+}
+```
+
+### Issue 2: Gradient Scaling Still Too Small
+
+**Root Cause**: We were dividing gradients by `num_cells * effective_channels` = 256, but the reference uses RAW sum loss without any averaging.
+
+**Reference loss function:**
+```python
+return jax.numpy.square(y[..., 0] - train_y[..., 0]).sum()  # No division!
+```
+
+**Fix Applied**: Changed to `scale = 1.0` (no averaging):
+```rust
+// OLD: let scale = 1.0 / (num_cells * effective_channels);
+let scale = 1.0;
+```
+
+### Issue 3: Reference .py File Has Wrong Layer Sizes
+
+The `difflogic_ca.py` file incorrectly shows `'layers': [513, 256, ...]` for update input. The actual notebook computes it dynamically:
+```python
+init = n_kernels * channels * layers[-1] + channels
+# = 16 * 8 * 2 + 8 = 264
+```
+
+**Our implementation correctly uses 264**, not 513.
+
+### Debug Tools Added
+
+- `debug_checkerboard.rs` - saves PNG images of target/seed/output for visual inspection
+- Added `image` crate dependency (v0.24 for Rust 1.85 compat)
+- Boundary zero-padding test: `test_neighborhood_zero_padding_c1`
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/grid.rs` | Fixed `get_cell()` and `get_cell_array()` to zero-pad OOB |
+| `src/grid.rs` | Updated tests for zero-padding behavior |
+| `src/training.rs` | Changed gradient scale from `1/256` to `1.0` |
+| `src/bin/debug_checkerboard.rs` | Added PNG image export |
+| `Cargo.toml` | Added `image = "0.24"` |
+| `agents/INDEX.md` | NEW: Code navigation index for LLMs |
+| `AGENTS.md` | Updated to reference INDEX.md |
+
+### Verified Correct
+
+- ✅ Checkerboard target pattern (2×2 squares, channel 0)
+- ✅ Zero-padding now works in neighborhoods
+- ✅ Loss computed on channel 0 only
+- ✅ Perception output ordering (c s k)
+- ✅ Update input size = 264
+
+### UNRESOLVED: Training Still Fails
+
+Despite all fixes, training shows IDENTICAL loss numbers. This suggests the binary may not be rebuilding properly, OR there's a fundamental issue not yet identified.
+
+**Possible causes to investigate:**
+1. Cargo caching issue - try `cargo clean && cargo build --release`
+2. Wrong binary being executed - verify path
+3. Deterministic RNG producing identical sequences
+4. Something in forward pass not using the updated code
+
+### Next Session Should
+
+1. Run `cargo clean && cargo build --release` to force full rebuild
+2. Add print statements to verify code changes are active
+3. Check if gradients are actually flowing (non-zero)
+4. Verify the training loop is actually updating weights
+
+---
+
+## Key Files for Next Session
+
+| Purpose | File | Lines |
+|---------|------|-------|
+| Boundary handling | `src/grid.rs` | 110-135 (get, get_cell, get_cell_array) |
+| Gradient scaling | `src/training.rs` | 573-580 |
+| Loss computation | `src/training.rs` | 279-294 (compute_loss_channel) |
+| Training binary | `src/bin/train_checkerboard.rs` | Full file |
+| Code index | `agents/INDEX.md` | Full file (use this first!) |

@@ -124,7 +124,7 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 - `grid.rs:152-155`: Periodic uses `rem_euclid` for wrapping
 
 ### Gradient Scaling
-- `training.rs:583-587`: Divide by `num_cells × effective_channels`, NOT by `num_steps`
+- `training.rs:573-580`: Uses `scale = 1.0` (raw sum, no averaging) to match reference
 
 ---
 
