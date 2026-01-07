@@ -109,6 +109,12 @@ impl NGrid {
     #[inline]
     pub fn get(&self, x: isize, y: isize, channel: usize) -> f64 {
         debug_assert!(channel < self.channels);
+        // For NonPeriodic, return 0.0 for out-of-bounds (zero-padding)
+        if self.boundary == BoundaryCondition::NonPeriodic {
+            if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
+                return 0.0;
+            }
+        }
         let (x, y) = self.resolve_coords(x, y);
         self.cells[self.cell_index(x, y, channel)]
     }
@@ -421,14 +427,22 @@ mod tests {
     }
 
     #[test]
-    fn test_ngrid_non_periodic_clamping_c1() {
+    fn test_ngrid_non_periodic_zero_padding_c1() {
         let mut grid = NGrid::non_periodic(3, 3, 1);
         grid.set(0, 0, 0, 1.0);
         grid.set(2, 2, 0, 0.5);
 
-        // Test clamping
-        assert_relative_eq!(grid.get(-5, 0, 0), 1.0);  // Clamps to (0, 0)
-        assert_relative_eq!(grid.get(10, 10, 0), 0.5); // Clamps to (2, 2)
+        // In-bounds reads work normally
+        assert_relative_eq!(grid.get(0, 0, 0), 1.0);
+        assert_relative_eq!(grid.get(2, 2, 0), 0.5);
+
+        // Out-of-bounds returns 0.0 (zero-padding, not clamping)
+        assert_relative_eq!(grid.get(-1, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(-5, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(3, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(10, 10, 0), 0.0);
+        assert_relative_eq!(grid.get(0, -1, 0), 0.0);
+        assert_relative_eq!(grid.get(0, 3, 0), 0.0);
     }
 
     #[test]

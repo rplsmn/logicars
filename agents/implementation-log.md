@@ -60,7 +60,9 @@ cargo run --bin train_checkerboard --release -- --log-interval=10  # Custom logg
 |-------|------------|--------|-------------|
 | GoL full | 16×[9→8→4→2→1]=240 | [17→128×10→...→1]=1407 | 1647 |
 | Checkerboard full | 16×[9→8→4→2]=224 | [264→256×10→...→8]=2816 | 3040 |
-| Checkerboard small | 16×[9→8→4→2]=224 | [264→256→128→...→8]=504 | 728 |
+| Checkerboard small | 16×[9→8→4→2]=224 | [264→256×4→128→...→8]=1272 | 1496 |
+
+**Note**: Small model was updated 2026-01-07 from 728→1496 gates (6→9 layers) after training showed insufficient capacity.
 
 ### Connection Types
 
@@ -219,4 +221,100 @@ This is expected - JAX runs parallel GPU kernels. See `agents/plan.md` Phase 4.4
 
 ---
 
-**Last Updated**: 2026-01-06
+## Session 2026-01-07: Small Model Capacity Fix
+
+### Problem Diagnosed
+
+Training showed soft loss decreasing (108→64) while hard accuracy stayed at ~50% (random).
+
+**Root Cause:** The "small" model had insufficient capacity:
+- Old: 6 update layers, 728 total gates
+- Reference uses: 16 update layers, 3040 gates
+
+The shallow network learned soft approximations (values near 0.5) that minimized loss but discretized to random.
+
+### Fix Applied
+
+Updated `create_small_checkerboard_update()` in `checkerboard.rs`:
+
+| Property | Old | New | Reference |
+|----------|-----|-----|-----------|
+| Update layers | 6 | 9 | 16 |
+| 256-unit layers | 1 | 4 | 10 |
+| Total gates | 728 | 1496 | 3040 |
+
+Architecture: `264→256×4→128→64→32→16→8` (10 layer sizes, 9 transitions)
+
+### Tests Added
+
+- `test_small_model_layer_depth` - verifies at least 8 update layers
+- Updated `test_small_checkerboard_model` - verifies at least 1000 gates
+
+Total: 138 tests passing
+
+### Next Steps
+
+Re-run training with new small model:
+```bash
+cargo run --bin train_checkerboard --release -- --small --epochs=100 --log-interval=10
+```
+
+Expected: Training should now show hard accuracy improving above 50%.
+
+---
+
+## Session 2026-01-07: Critical Gradient Scaling Bug Fix
+
+### Problem
+
+After increasing model capacity (728→1496 gates), training still showed:
+- Soft loss: 104 → 64 (converging to expected value for all-0.5 outputs)
+- Hard accuracy: ~50% (random)
+
+Analysis revealed the network outputs were stuck at exactly 0.5 (uncertain).
+
+### Root Cause: Gradient Scaling Bug
+
+In `backward_through_time()`, we were scaling gradients by:
+```rust
+let scale = 1.0 / (num_steps * num_cells * effective_channels);
+// = 1 / (20 * 256 * 1) = 1/5120 = 0.000195
+```
+
+This was WRONG. The division by `num_steps` has no basis in the math:
+
+1. In BPTT, gradients from each step **accumulate** (same parameters used at each step)
+2. Only the final step contributes to loss, but gradients flow back through all steps
+3. The reference implementation does NOT average over steps
+
+**Result**: Effective learning rate was `0.05 * 0.000195 = 0.00001` - 1000x too small!
+
+### Fix Applied
+
+Changed gradient scaling in `training.rs`:
+```rust
+// OLD (WRONG):
+let scale = 1.0 / (num_steps * num_cells * effective_channels);
+
+// NEW (CORRECT):
+let scale = 1.0 / (num_cells * effective_channels);
+```
+
+Now effective LR is `0.05 * 0.00390625 = 0.000195` which is 20x larger.
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/training.rs` | Removed `num_steps` from gradient scaling divisor |
+
+### Next Steps
+
+Re-run training - this should now converge properly:
+```bash
+cargo run --bin train_checkerboard --release -- --small --epochs=100 --log-interval=10
+```
+
+---
+
+**Last Updated**: 2026-01-07
