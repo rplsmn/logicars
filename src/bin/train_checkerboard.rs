@@ -13,7 +13,7 @@
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
     create_checkerboard_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng,
+    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
 };
@@ -21,6 +21,15 @@ use std::time::Instant;
 
 fn main() {
     println!("=== Phase 2.1: Checkerboard Sync Training ===\n");
+
+    // DEBUG: Verify gate ordering is correct
+    let test_gate = ProbabilisticGate::new();
+    let (dom_op, dom_prob) = test_gate.dominant_operation();
+    let soft_0_1 = test_gate.execute_soft(0.0, 1.0);
+    let soft_1_0 = test_gate.execute_soft(1.0, 0.0);
+    eprintln!("[GATE CHECK] Dominant op: {:?} ({:.4}), soft(0,1)={:.4}, soft(1,0)={:.4}", 
+              dom_op, dom_prob, soft_0_1, soft_1_0);
+    eprintln!("[GATE CHECK] Expected: A (pass-through), soft(0,1)≈0.0, soft(1,0)≈1.0\n");
 
     // Parse command line args
     let args: Vec<String> = std::env::args().collect();

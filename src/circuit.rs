@@ -27,9 +27,12 @@ pub struct HardGate {
 
 impl HardGate {
     /// Create a new hard gate
+    /// NOTE: op should be the INDEX in BinaryOp::ALL (0-15), not the enum discriminant
     pub fn new(op: BinaryOp, wire_a: usize, wire_b: usize) -> Self {
+        // Find the index of this operation in ALL
+        let index = BinaryOp::ALL.iter().position(|&o| o == op).unwrap_or(0);
         Self {
-            op: op as u8,
+            op: index as u8,
             wire_a,
             wire_b,
         }
@@ -49,9 +52,8 @@ impl HardGate {
 
     /// Check if this gate is a pass-through (A or B)
     pub fn is_pass_through(&self) -> bool {
-        // A = 12 (passes through first input)
-        // B = 10 (passes through second input)
-        self.op == 12 || self.op == 10
+        // With reference ordering: A = index 3, B = index 5
+        self.op == 3 || self.op == 5
     }
 }
 

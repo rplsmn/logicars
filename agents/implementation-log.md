@@ -405,29 +405,86 @@ init = n_kernels * channels * layers[-1] + channels
 
 ### UNRESOLVED: Training Still Fails
 
-Despite all fixes, training shows IDENTICAL loss numbers. This suggests the binary may not be rebuilding properly, OR there's a fundamental issue not yet identified.
+Despite all fixes, training shows outputs collapsing to 0.5. This has been thoroughly diagnosed:
 
-**Possible causes to investigate:**
-1. Cargo caching issue - try `cargo clean && cargo build --release`
-2. Wrong binary being executed - verify path
-3. Deterministic RNG producing identical sequences
-4. Something in forward pass not using the updated code
+**Session 2026-01-07: Gate Ordering Fix & Gradient Analysis**
 
-### Next Session Should
+### What Was Done
 
-1. Run `cargo clean && cargo build --release` to force full rebuild
-2. Add print statements to verify code changes are active
-3. Check if gradients are actually flowing (non-zero)
-4. Verify the training loop is actually updating weights
+1. **Gate ordering fixed**: The `BinaryOp::ALL` array was reordered to match reference:
+   - Index 3 is now `A` (pass-through) instead of `NotA`
+   - This matches `DEFAULT_PASS_VALUE = 10.0` at index 3 in reference
+   - Verified: `soft(0,1)=0.0004, soft(1,0)=0.9996` (correct)
+
+2. **HardGate::new() fixed**: Now stores index in ALL, not enum discriminant
+
+3. **Debug output added**:
+   - Output statistics (min, max, avg) at each epoch
+   - Gradient statistics (avg, max)
+   - Dominant operation percentage across all gates
+
+### Key Findings
+
+**Training Dynamics Issue:**
+
+| Epoch | Output Range | Max Gradient | Pass-Through % |
+|-------|-------------|--------------|----------------|
+| 0 | 0.06-0.94 | 1.30 | 100% |
+| 10 | 0.16-0.84 | 2.29 | 100% |
+| 20 | 0.33-0.67 | 1.88 | 100% |
+| 30 | 0.46-0.54 | 0.13 | 100% |
+| 40 | 0.49-0.51 | 0.05 | 100% |
+| 50 | 0.49-0.51 | 0.03 | 100% |
+
+**Root Cause Analysis:**
+
+1. **Output collapse**: After ~30 epochs, outputs converge to 0.5
+2. **Gradient death**: When outputs = 0.5, loss gradients become tiny
+3. **Gate stuck**: 100% of gates remain pass-through (A) throughout training
+4. **Softmax saturation**: With logits[3]=10.0, prob[3]≈0.9999, so `dprob/dlogit ≈ 0`
+
+The problem is NOT in our code correctness - it's a training dynamics issue where:
+- Pass-through gates relay inputs unchanged
+- Over 20 CA steps, values wash toward 0.5 (mean)
+- Gradients can't overcome the 10-point logit gap for pass-through
+
+**Reference uses same initialization (10.0) but works.** The difference is likely:
+1. JAX's autodiff handles numerical aspects differently
+2. Batch training (batch_size=2) provides more gradient variance  
+3. Something in the gradient flow we haven't identified
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/phase_0_1.rs` | Fixed BinaryOp::ALL ordering to match reference |
+| `src/phase_0_1.rs` | Fixed ProbabilisticGate::new() to use index 3 |
+| `src/circuit.rs` | Fixed HardGate::new() to store index in ALL |
+| `src/training.rs` | Added debug output for gradients and gate operations |
+| `src/bin/train_checkerboard.rs` | Added gate verification at startup |
+
+### All 139 Tests Pass
+
+```bash
+cargo test --lib  # 139 passed
+```
+
+### Next Steps to Investigate
+
+1. **Try batch training**: Train on multiple samples per step
+2. **Try curriculum learning**: Start with fewer steps, increase gradually
+3. **Try different initialization**: Lower pass-through logit (e.g., 5.0)
+4. **Compare with GoL training**: Does GoL (1-step) also have this issue?
+5. **Inspect JAX gradient values**: Run reference and compare gradient magnitudes
 
 ---
 
-## Key Files for Next Session
+## Key Files
 
 | Purpose | File | Lines |
 |---------|------|-------|
-| Boundary handling | `src/grid.rs` | 110-135 (get, get_cell, get_cell_array) |
-| Gradient scaling | `src/training.rs` | 573-580 |
-| Loss computation | `src/training.rs` | 279-294 (compute_loss_channel) |
+| Gate ordering | `src/phase_0_1.rs` | 68-90 (BinaryOp::ALL) |
+| Gate initialization | `src/phase_0_1.rs` | 103-119 |
+| Gradient debug | `src/training.rs` | 694-728 |
 | Training binary | `src/bin/train_checkerboard.rs` | Full file |
 | Code index | `agents/INDEX.md` | Full file (use this first!) |

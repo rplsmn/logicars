@@ -433,6 +433,12 @@ impl TrainingLoop {
             final_output.boundary,
         );
 
+        // DEBUG: Track output and gradient statistics
+        let mut output_sum = 0.0f64;
+        let mut output_min = f64::INFINITY;
+        let mut output_max = f64::NEG_INFINITY;
+        let mut loss_grad_sum = 0.0f64;
+
         for y in 0..final_output.height {
             for x in 0..final_output.width {
                 for c in 0..channels {
@@ -441,6 +447,13 @@ impl TrainingLoop {
                         Some(loss_c) if loss_c == c => {
                             let pred = final_output.get(x as isize, y as isize, c);
                             let tgt = target.get(x as isize, y as isize, c);
+                            
+                            // DEBUG: Track output stats
+                            output_sum += pred;
+                            output_min = output_min.min(pred);
+                            output_max = output_max.max(pred);
+                            loss_grad_sum += (2.0 * (pred - tgt)).abs();
+                            
                             2.0 * (pred - tgt)
                         }
                         Some(_) => 0.0, // Not the loss channel, no gradient
@@ -448,12 +461,31 @@ impl TrainingLoop {
                             // All channels contribute to loss
                             let pred = final_output.get(x as isize, y as isize, c);
                             let tgt = target.get(x as isize, y as isize, c);
+                            
+                            // DEBUG: Track output stats
+                            output_sum += pred;
+                            output_min = output_min.min(pred);
+                            output_max = output_max.max(pred);
+                            loss_grad_sum += (2.0 * (pred - tgt)).abs();
+                            
                             2.0 * (pred - tgt)
                         }
                     };
                     grid_grads.set(x, y, c, grad);
                 }
             }
+        }
+
+        // DEBUG: Print output and initial gradient stats (enabled via LOGICARS_DEBUG=1)
+        let debug_enabled = std::env::var("LOGICARS_DEBUG").map(|v| v == "1").unwrap_or(false);
+        if debug_enabled && self.iteration % 10 == 0 {
+            let effective_channels = self.config.loss_channel.map(|_| 1).unwrap_or(channels);
+            let num_outputs = num_cells * effective_channels;
+            let output_avg = output_sum / num_outputs as f64;
+            eprintln!(
+                "[DEBUG iter={}] outputs: min={:.4}, max={:.4}, avg={:.4} | loss_grad_sum={:.4}",
+                self.iteration, output_min, output_max, output_avg, loss_grad_sum
+            );
         }
 
         // Backpropagate through steps in reverse order
@@ -600,16 +632,30 @@ impl TrainingLoop {
         update_grads: &[Vec<[f64; 16]>],
         scale: f64,
     ) {
+        // DEBUG: Track gradient statistics
+        let mut total_grad_sum = 0.0f64;
+        let mut max_grad = 0.0f64;
+        let mut num_grads = 0usize;
+        let mut weight_before_sample = 0.0f64;
+        let mut weight_after_sample = 0.0f64;
+        let mut sample_taken = false;
+
         // Apply updates to perception weights
         for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
             for (layer_idx, layer_grads) in kernel_grads.iter().enumerate() {
                 for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                     let mut clipped = [0.0; 16];
                     for i in 0..16 {
-                        clipped[i] = (gate_grad[i] * scale).clamp(
-                            -self.config.gradient_clip,
-                            self.config.gradient_clip,
-                        );
+                        let g = gate_grad[i] * scale;
+                        clipped[i] = g.clamp(-self.config.gradient_clip, self.config.gradient_clip);
+                        total_grad_sum += g.abs();
+                        max_grad = max_grad.max(g.abs());
+                        num_grads += 1;
+                    }
+
+                    // Sample first weight for before/after comparison
+                    if !sample_taken {
+                        weight_before_sample = self.model.perception.kernels[kernel_idx].layers[layer_idx].gates[gate_idx].logits[0];
                     }
 
                     self.perception_optimizers[kernel_idx][layer_idx][gate_idx].step(
@@ -618,6 +664,11 @@ impl TrainingLoop {
                             .logits,
                         &clipped,
                     );
+
+                    if !sample_taken {
+                        weight_after_sample = self.model.perception.kernels[kernel_idx].layers[layer_idx].gates[gate_idx].logits[0];
+                        sample_taken = true;
+                    }
                 }
             }
         }
@@ -627,10 +678,11 @@ impl TrainingLoop {
             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                 let mut clipped = [0.0; 16];
                 for i in 0..16 {
-                    clipped[i] = (gate_grad[i] * scale).clamp(
-                        -self.config.gradient_clip,
-                        self.config.gradient_clip,
-                    );
+                    let g = gate_grad[i] * scale;
+                    clipped[i] = g.clamp(-self.config.gradient_clip, self.config.gradient_clip);
+                    total_grad_sum += g.abs();
+                    max_grad = max_grad.max(g.abs());
+                    num_grads += 1;
                 }
 
                 self.update_optimizers[layer_idx][gate_idx].step(
@@ -638,6 +690,42 @@ impl TrainingLoop {
                     &clipped,
                 );
             }
+        }
+
+        // DEBUG: Print gradient and weight statistics (enabled via LOGICARS_DEBUG=1)
+        let debug_enabled = std::env::var("LOGICARS_DEBUG").map(|v| v == "1").unwrap_or(false);
+        if debug_enabled && self.iteration % 10 == 0 {
+            let avg_grad = if num_grads > 0 { total_grad_sum / num_grads as f64 } else { 0.0 };
+            let weight_delta = weight_after_sample - weight_before_sample;
+            
+            // Count dominant operations across all gates
+            let mut op_counts = [0usize; 16];
+            for kernel in &self.model.perception.kernels {
+                for layer in &kernel.layers {
+                    for gate in &layer.gates {
+                        let (idx, _) = gate.logits.iter().enumerate()
+                            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                            .unwrap();
+                        op_counts[idx] += 1;
+                    }
+                }
+            }
+            for layer in &self.model.update.layers {
+                for gate in &layer.gates {
+                    let (idx, _) = gate.logits.iter().enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .unwrap();
+                    op_counts[idx] += 1;
+                }
+            }
+            
+            // Print operation distribution (index 3 = pass-through A)
+            let total_gates = op_counts.iter().sum::<usize>();
+            let pass_through_pct = 100.0 * op_counts[3] as f64 / total_gates as f64;
+            eprintln!(
+                "[DEBUG iter={}] grads: avg={:.6}, max={:.6} | weight[0] delta={:.6} | pass-through: {:.1}%",
+                self.iteration, avg_grad, max_grad, weight_delta, pass_through_pct
+            );
         }
     }
     /// Compute gradient w.r.t. perception output (for chain rule through update)

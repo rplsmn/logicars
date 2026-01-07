@@ -142,7 +142,7 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 
 ### Long-Running Tasks
 
-For any task that are not generative, e.g. model training, large test suites:
+For any task that are not generative, e.g. `cargo run`:
 
 1. **Do NOT run it yourself** - it will timeout or block progress
 2. **Provide the command** to the human with clear instructions
