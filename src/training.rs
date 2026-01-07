@@ -572,19 +572,9 @@ impl TrainingLoop {
 
         // Apply gradient updates
         // Reference implementation: loss = sum over cells of (pred - target)^2
-        // Gradients naturally scale with number of cells (each cell contributes)
-        // We accumulate over cells, so we need to average to match reference's per-cell gradient
-        // 
-        // IMPORTANT: We do NOT average over num_steps!
-        // In BPTT, gradients from each step accumulate (they represent the same parameters used at each step)
-        // Only the final step contributes to the loss, gradients flow back through all steps.
-        //
-        // If loss_channel is set, only 1 channel contributes; otherwise all channels
-        let effective_channels = match self.config.loss_channel {
-            Some(_) => 1,
-            None => channels,
-        };
-        let scale = 1.0 / (num_cells as f64 * effective_channels as f64);
+        // Gradient is computed on the raw sum, NOT averaged.
+        // We use scale=1.0 to match reference behavior.
+        let scale = 1.0;
         self.apply_gradients(&perception_grad_accum, &update_grad_accum, scale);
     }
 
