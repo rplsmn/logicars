@@ -180,6 +180,32 @@ impl GateLayer {
             })
             .collect()
     }
+
+    /// Get all logits as flat f32 array [num_gates × 16]
+    /// Used for GPU buffer transfer
+    #[cfg(feature = "gpu")]
+    pub fn get_logits_flat_f32(&self) -> Vec<f32> {
+        self.gates
+            .iter()
+            .flat_map(|g| g.logits.iter().map(|&x| x as f32))
+            .collect()
+    }
+
+    /// Get all wire indices as flat u32 array [num_gates × 2]
+    /// Layout: [gate0_a, gate0_b, gate1_a, gate1_b, ...]
+    #[cfg(feature = "gpu")]
+    pub fn get_wires_flat_u32(&self) -> Vec<u32> {
+        self.gates
+            .iter()
+            .enumerate()
+            .flat_map(|(i, _)| [self.wires.a[i] as u32, self.wires.b[i] as u32])
+            .collect()
+    }
+
+    /// Output size of this layer (number of gates)
+    pub fn output_size(&self) -> usize {
+        self.gates.len()
+    }
 }
 
 /// A single perception kernel (multi-layer gate network)

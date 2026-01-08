@@ -185,22 +185,31 @@ This is expected - JAX runs optimized GPU kernels while we run sequential CPU co
 **Target**: Match or beat JAX CPU performance (2-5x faster than JAX on CPU).
 GPU parity is a stretch goal for Phase 5.
 
-### 4.5 GPU Acceleration (wgpu)
+### 4.5 GPU Acceleration (wgpu) → Burn Framework
 
-**Status**: ⬜ Planned | **Detailed plans in `reference/gpu-phase*-plan.md`**
+**Status**: ⏸️ DEFERRED | **Current wgpu work archived**
 
-GPU acceleration using wgpu for AMD RX 7800 XT (and cross-platform support).
+GPU acceleration was attempted with wgpu in Phase 2, but:
+- GPU is 3.5x slower than CPU for 16×16 grids (dispatch overhead)
+- Would require fully fused kernels (major effort) to achieve speedup
+- CPU training still needs to converge first
 
-| Phase | Description | Est. Duration | Plan |
-|-------|-------------|---------------|------|
-| GPU 1 | Basic wgpu setup, verify hardware | 1-2 days | `reference/gpu-phase1-plan.md` |
-| GPU 2 | Forward pass on GPU | 2-3 days | `reference/gpu-phase2-plan.md` |
-| GPU 3 | Backward pass on GPU | 3-4 days | `reference/gpu-phase3-plan.md` |
-| GPU 4 | Integration & optimization | 2-3 days | `reference/gpu-phase4-plan.md` |
+**Revised approach**: Use [Burn framework](https://burn.dev/) when ready:
 
-**Target performance**: 10-30x speedup, 500 epochs in <5 minutes.
+| Feature | wgpu (current) | Burn |
+|---------|----------------|------|
+| Autodiff | Manual shaders | Automatic (`Autodiff<B>`) |
+| Kernel fusion | Manual | Automatic (`Fusion<B>`) |
+| Backend support | wgpu only | wgpu, CUDA, ROCm, NdArray |
+| Effort | High | Medium (refactor needed) |
 
-See `reference/gpu-plan.md` for architectural overview and analysis.
+**Prerequisites before GPU work:**
+1. CPU training converges on checkerboard
+2. Algorithm correctness verified
+
+**Estimated refactoring**: ~1 week to port to Burn
+
+See `reference/gpu-plan.md` for full analysis.
 
 ---
 
