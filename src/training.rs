@@ -46,6 +46,10 @@ pub struct TrainingConfig {
     /// Batch size for training (default: 1, reference uses 2 for checkerboard)
     /// Larger batches provide more gradient variance, helping escape local minima.
     pub batch_size: usize,
+    /// Random gradient noise scale (default: None = disabled)
+    /// When enabled, adds noise: grad[i] += rng.next_f64() * noise_scale * grad[i].abs()
+    /// This can help break gradient symmetry and escape local minima.
+    pub gradient_noise: Option<f64>,
 }
 
 impl Default for TrainingConfig {
@@ -59,6 +63,7 @@ impl Default for TrainingConfig {
             periodic: true,
             loss_channel: None, // All channels for GoL (C=1)
             batch_size: 1,
+            gradient_noise: None, // Disabled by default
         }
     }
 }
@@ -75,6 +80,7 @@ impl TrainingConfig {
             periodic: true,
             loss_channel: None, // All channels (C=1)
             batch_size: 20, // Reference uses batch_size=20 for GoL
+            gradient_noise: None,
         }
     }
 
@@ -89,6 +95,7 @@ impl TrainingConfig {
             periodic: false,
             loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
             batch_size: 2, // Reference uses batch_size=2 for checkerboard
+            gradient_noise: None,
         }
     }
 
@@ -103,6 +110,7 @@ impl TrainingConfig {
             periodic: false,
             loss_channel: Some(0), // Loss only on channel 0 (pattern channel)
             batch_size: 1, // Reference uses batch_size=1 for async
+            gradient_noise: None,
         }
     }
 }
@@ -730,7 +738,11 @@ impl TrainingLoop {
                 for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                     let mut scaled = [0.0; 16];
                     for i in 0..16 {
-                        let g = gate_grad[i] * scale * clip_coef;
+                        let mut g = gate_grad[i] * scale * clip_coef;
+                        // Add random gradient noise to break symmetry (gpu-plan.md §4.2)
+                        if let Some(noise_scale) = self.config.gradient_noise {
+                            g += self.rng.next_f64() * noise_scale * g.abs();
+                        }
                         scaled[i] = g;
                         total_grad_sum += g.abs();
                         max_grad = max_grad.max(g.abs());
@@ -762,7 +774,11 @@ impl TrainingLoop {
             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                 let mut scaled = [0.0; 16];
                 for i in 0..16 {
-                    let g = gate_grad[i] * scale * clip_coef;
+                    let mut g = gate_grad[i] * scale * clip_coef;
+                    // Add random gradient noise to break symmetry (gpu-plan.md §4.2)
+                    if let Some(noise_scale) = self.config.gradient_noise {
+                        g += self.rng.next_f64() * noise_scale * g.abs();
+                    }
                     scaled[i] = g;
                     total_grad_sum += g.abs();
                     max_grad = max_grad.max(g.abs());
@@ -1499,5 +1515,49 @@ mod tests {
 
         assert_relative_eq!(loss1, loss2, epsilon = 1e-10);
         assert_relative_eq!(hard1, hard2, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_gradient_noise_modifies_gradients() {
+        // With gradient noise enabled, training with the same input should produce
+        // different weight updates due to random noise injection
+        let model = create_small_model();
+        
+        // Config WITHOUT noise
+        let config_no_noise = TrainingConfig {
+            gradient_noise: None,
+            ..TrainingConfig::default()
+        };
+        
+        // Config WITH noise (scale = 0.001 as suggested in gpu-plan.md §4.2)
+        let config_with_noise = TrainingConfig {
+            gradient_noise: Some(0.001),
+            ..TrainingConfig::default()
+        };
+
+        let mut training_no_noise = TrainingLoop::new(model.clone(), config_no_noise);
+        let mut training_with_noise = TrainingLoop::new(model.clone(), config_with_noise);
+
+        let input = NGrid::periodic(3, 3, 1);
+        let mut target = NGrid::periodic(3, 3, 1);
+        target.set(1, 1, 0, 1.0);
+
+        // Train both for a few steps
+        for _ in 0..5 {
+            training_no_noise.train_step(&input, &target);
+            training_with_noise.train_step(&input, &target);
+        }
+
+        // Get a sample weight from each (first perception gate, first logit)
+        let weight_no_noise = training_no_noise.model.perception.kernels[0].layers[0].gates[0].logits[0];
+        let weight_with_noise = training_with_noise.model.perception.kernels[0].layers[0].gates[0].logits[0];
+
+        // With noise, weights should differ from the no-noise version
+        // (Note: they could theoretically be the same by chance, but that's astronomically unlikely)
+        assert!(
+            (weight_no_noise - weight_with_noise).abs() > 1e-10,
+            "Gradient noise should cause weights to differ: {} vs {}",
+            weight_no_noise, weight_with_noise
+        );
     }
 }
