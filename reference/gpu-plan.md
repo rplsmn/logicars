@@ -83,19 +83,19 @@ Our Rust implementation may have slower logit gap closure due to exact gradient 
 
 ---
 
-## Part 2: AMD RX 7800 XT GPU Options
+## Part 2: AMD RX 6800 XT GPU Options
 
 ### 2.1 Hardware Specifications
 
-| Spec | RX 7800 XT |
+| Spec | RX 6800 XT |
 |------|------------|
-| Architecture | RDNA 3 |
-| Compute Units | 60 |
-| Stream Processors | 3840 |
+| Architecture | RDNA 2 |
+| Compute Units | 72 |
+| Stream Processors | 4608 |
 | Memory | 16GB GDDR6 |
-| Memory Bandwidth | 624 GB/s |
-| FP32 TFLOPS | 37.3 |
-| ROCm Support | Yes (6.0+) |
+| Memory Bandwidth | 512 GB/s |
+| FP32 TFLOPS | 20.74 |
+| ROCm Support | Yes (5.0+) |
 
 ### 2.2 GPU Framework Options for Rust
 
