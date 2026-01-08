@@ -4,6 +4,8 @@
 //! differentiable logic cellular automata.
 
 mod context;
+mod gate_layer;
+mod forward;
 
 pub use context::{GpuContext, GpuError};
 
