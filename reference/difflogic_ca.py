@@ -511,10 +511,7 @@ CHECKERBOARD_SYNC_HYPERPARAMS = {
         'connections': ['first_kernel', 'unique', 'unique'],
     },
     'update': {
-        # Input: 8 (center channels) + 16*8 (kernel outputs) = 136...
-        # Actually: center(8) + kernels(16) * channels(8) = 8 + 128 = 136
-        # But notebook shows 513 = 1 + 16*32? Let's use notebook value
-        'layers': [513, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+        'layers': [264, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
                    128, 64, 32, 16, 8, 8],
         'connections': ['unique'] * 16,
     },
@@ -539,7 +536,7 @@ CHECKERBOARD_ASYNC_HYPERPARAMS = {
     },
     'update': {
         # Deeper network for async robustness
-        'layers': [513, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+        'layers': [264, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
                    256, 256, 256, 256, 128, 64, 32, 16, 8, 8],
         'connections': ['unique'] * 20,
     },

@@ -65,24 +65,28 @@ impl BinaryOp {
         }
     }
 
-    /// All 16 operations, indexed by their truth table value (0-15)
+    /// All 16 operations, indexed to MATCH REFERENCE IMPLEMENTATION:
+    /// 0: FALSE, 1: AND, 2: A AND NOT B, 3: A (pass-through)
+    /// 4: NOT A AND B, 5: B, 6: XOR, 7: OR
+    /// 8: NOR, 9: XNOR, 10: NOT B, 11: A OR NOT B
+    /// 12: NOT A, 13: NOT A OR B, 14: NAND, 15: TRUE
     pub const ALL: [BinaryOp; 16] = [
-        BinaryOp::False,    // 0
-        BinaryOp::Nor,      // 1
-        BinaryOp::NotAAndB, // 2
-        BinaryOp::NotA,     // 3
-        BinaryOp::AAndNotB, // 4
-        BinaryOp::NotB,     // 5
-        BinaryOp::Xor,      // 6
-        BinaryOp::Nand,     // 7
-        BinaryOp::And,      // 8
-        BinaryOp::Xnor,     // 9
-        BinaryOp::B,        // 10
-        BinaryOp::NotAOrB,  // 11
-        BinaryOp::A,        // 12
-        BinaryOp::AOrNotB,  // 13
-        BinaryOp::Or,       // 14
-        BinaryOp::True,     // 15
+        BinaryOp::False,    // 0: FALSE
+        BinaryOp::And,      // 1: AND
+        BinaryOp::AAndNotB, // 2: A AND NOT B
+        BinaryOp::A,        // 3: A (pass-through) <-- CRITICAL for initialization
+        BinaryOp::NotAAndB, // 4: NOT A AND B
+        BinaryOp::B,        // 5: B
+        BinaryOp::Xor,      // 6: XOR
+        BinaryOp::Or,       // 7: OR
+        BinaryOp::Nor,      // 8: NOR
+        BinaryOp::Xnor,     // 9: XNOR
+        BinaryOp::NotB,     // 10: NOT B
+        BinaryOp::AOrNotB,  // 11: A OR NOT B
+        BinaryOp::NotA,     // 12: NOT A
+        BinaryOp::NotAOrB,  // 13: NOT A OR B
+        BinaryOp::Nand,     // 14: NAND
+        BinaryOp::True,     // 15: TRUE
     ];
 }
 
@@ -98,8 +102,10 @@ impl ProbabilisticGate {
     /// Create a new gate with pass-through initialization
     pub fn new() -> Self {
         let mut logits = [0.0; 16];
-        // Initialize pass-through gate A (value 12) to 10.0 for training stability
-        logits[12] = 10.0;
+        // Initialize pass-through gate A (index 3 in reference ordering) to 10.0 for training stability
+        // Reference uses 10.0 and it works with JAX autodiff
+        // The high value keeps softmax saturated, preserving input variance early in training
+        logits[3] = 10.0;
         Self { logits }
     }
 
@@ -109,8 +115,8 @@ impl ProbabilisticGate {
         for i in 0..16 {
             logits[i] = rng.random_range(-1.0..1.0);
         }
-        // Still bias towards pass-through for stability
-        logits[12] += 5.0;
+        // Bias towards pass-through (index 3) for stability
+        logits[3] += 5.0;
         Self { logits }
     }
 

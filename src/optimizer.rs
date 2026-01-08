@@ -39,20 +39,15 @@ impl AdamW {
     }
 
     /// Update parameters given gradients
+    /// 
+    /// Note: Gradient clipping should be done BEFORE calling this method,
+    /// using global norm clipping across all parameters (like optax.clip).
     pub fn step(&mut self, params: &mut [f64; 16], grads: &[f64; 16]) {
         self.t += 1;
 
-        // Gradient clipping by global norm
-        let grad_norm: f64 = grads.iter().map(|&g| g * g).sum::<f64>().sqrt();
-        let clip_coef = if grad_norm > self.max_grad_norm {
-            self.max_grad_norm / grad_norm
-        } else {
-            1.0
-        };
-
-        // Apply updates
+        // Apply updates (no clipping here - done globally before this call)
         for i in 0..16 {
-            let mut grad = grads[i] * clip_coef;
+            let grad = grads[i];
 
             // Update biased first moment estimate
             self.m[i] = self.beta1 * self.m[i] + (1.0 - self.beta1) * grad;

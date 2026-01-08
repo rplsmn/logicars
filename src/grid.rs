@@ -109,6 +109,12 @@ impl NGrid {
     #[inline]
     pub fn get(&self, x: isize, y: isize, channel: usize) -> f64 {
         debug_assert!(channel < self.channels);
+        // For NonPeriodic, return 0.0 for out-of-bounds (zero-padding)
+        if self.boundary == BoundaryCondition::NonPeriodic {
+            if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
+                return 0.0;
+            }
+        }
         let (x, y) = self.resolve_coords(x, y);
         self.cells[self.cell_index(x, y, channel)]
     }
@@ -123,6 +129,12 @@ impl NGrid {
 
     /// Get all channels for a cell at (x, y)
     pub fn get_cell(&self, x: isize, y: isize) -> Vec<f64> {
+        // For NonPeriodic, return zeros for out-of-bounds (zero-padding)
+        if self.boundary == BoundaryCondition::NonPeriodic {
+            if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
+                return vec![0.0; self.channels];
+            }
+        }
         let (x, y) = self.resolve_coords(x, y);
         let start = self.cell_index(x, y, 0);
         self.cells[start..start + self.channels].to_vec()
@@ -138,6 +150,12 @@ impl NGrid {
     /// Get all channels for a cell as a fixed-size array (for common sizes)
     pub fn get_cell_array<const C: usize>(&self, x: isize, y: isize) -> [f64; C] {
         assert_eq!(C, self.channels, "Array size must match channel count");
+        // For NonPeriodic, return zeros for out-of-bounds (zero-padding)
+        if self.boundary == BoundaryCondition::NonPeriodic {
+            if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
+                return [0.0; C];
+            }
+        }
         let (x, y) = self.resolve_coords(x, y);
         let start = self.cell_index(x, y, 0);
         let mut arr = [0.0; C];
@@ -421,14 +439,40 @@ mod tests {
     }
 
     #[test]
-    fn test_ngrid_non_periodic_clamping_c1() {
+    fn test_ngrid_non_periodic_zero_padding_c1() {
         let mut grid = NGrid::non_periodic(3, 3, 1);
         grid.set(0, 0, 0, 1.0);
         grid.set(2, 2, 0, 0.5);
 
-        // Test clamping
-        assert_relative_eq!(grid.get(-5, 0, 0), 1.0);  // Clamps to (0, 0)
-        assert_relative_eq!(grid.get(10, 10, 0), 0.5); // Clamps to (2, 2)
+        // In-bounds reads work normally
+        assert_relative_eq!(grid.get(0, 0, 0), 1.0);
+        assert_relative_eq!(grid.get(2, 2, 0), 0.5);
+
+        // Out-of-bounds returns 0.0 (zero-padding, not clamping)
+        assert_relative_eq!(grid.get(-1, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(-5, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(3, 0, 0), 0.0);
+        assert_relative_eq!(grid.get(10, 10, 0), 0.0);
+        assert_relative_eq!(grid.get(0, -1, 0), 0.0);
+        assert_relative_eq!(grid.get(0, 3, 0), 0.0);
+    }
+
+    #[test]
+    fn test_neighborhood_zero_padding_c1() {
+        // Test that corner neighborhoods have zero-padded neighbors
+        let mut grid = NGrid::non_periodic(3, 3, 1);
+        grid.set(0, 0, 0, 1.0); // Top-left corner
+        grid.set(2, 2, 0, 0.5); // Bottom-right corner
+
+        // Neighborhood at (0,0) - top-left corner
+        // NW, N, NE are out of bounds -> should be 0
+        // W is out of bounds -> should be 0
+        let n = grid.neighborhood(0, 0);
+        assert_relative_eq!(n.get(0, 0), 0.0, epsilon = 1e-10); // NW - out of bounds
+        assert_relative_eq!(n.get(1, 0), 0.0, epsilon = 1e-10); // N - out of bounds
+        assert_relative_eq!(n.get(2, 0), 0.0, epsilon = 1e-10); // NE - out of bounds
+        assert_relative_eq!(n.get(3, 0), 0.0, epsilon = 1e-10); // W - out of bounds
+        assert_relative_eq!(n.get(4, 0), 1.0, epsilon = 1e-10); // C - the cell itself
     }
 
     #[test]
@@ -562,16 +606,20 @@ mod tests {
         let corner_values: Vec<f64> = vec![1.0; 8];
         grid.set_cell(0, 0, &corner_values);
 
-        // Neighborhood at corner should clamp
+        // Neighborhood at corner should zero-pad out-of-bounds
         let n = grid.neighborhood(0, 0);
 
-        // NW, N, NE, W should all clamp to edge values
-        // For corner (0,0): NW(-1,-1) clamps to (0,0)
+        // NW, N, NE, W are out of bounds and should be zero
+        // For corner (0,0): NW(-1,-1) is out of bounds -> zeros
         let center = n.get_cell(4);
         let nw = n.get_cell(0);
-        // Both should be the corner value since they clamp
+        // Center should be the corner value
         for i in 0..8 {
-            assert_relative_eq!(center[i], nw[i]);
+            assert_relative_eq!(center[i], 1.0);
+        }
+        // NW should be zeros (out of bounds)
+        for i in 0..8 {
+            assert_relative_eq!(nw[i], 0.0);
         }
     }
 

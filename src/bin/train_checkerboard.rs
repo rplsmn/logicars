@@ -13,7 +13,7 @@
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
     create_checkerboard_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng,
+    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
 };
@@ -21,6 +21,15 @@ use std::time::Instant;
 
 fn main() {
     println!("=== Phase 2.1: Checkerboard Sync Training ===\n");
+
+    // DEBUG: Verify gate ordering is correct
+    let test_gate = ProbabilisticGate::new();
+    let (dom_op, dom_prob) = test_gate.dominant_operation();
+    let soft_0_1 = test_gate.execute_soft(0.0, 1.0);
+    let soft_1_0 = test_gate.execute_soft(1.0, 0.0);
+    eprintln!("[GATE CHECK] Dominant op: {:?} ({:.4}), soft(0,1)={:.4}, soft(1,0)={:.4}", 
+              dom_op, dom_prob, soft_0_1, soft_1_0);
+    eprintln!("[GATE CHECK] Expected: A (pass-through), soft(0,1)≈0.0, soft(1,0)≈1.0\n");
 
     // Parse command line args
     let args: Vec<String> = std::env::args().collect();
@@ -72,6 +81,7 @@ fn main() {
 
     // Create config
     let config = TrainingConfig::checkerboard_sync();
+    let batch_size = config.batch_size;
     println!("Training configuration:");
     println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
@@ -79,6 +89,7 @@ fn main() {
     println!("  Epochs: {}", epochs);
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
+    println!("  Batch size: {}", batch_size);
     println!();
 
     // Create training loop
@@ -103,15 +114,17 @@ fn main() {
     println!("Training...\n");
 
     for epoch in 0..epochs {
-        // Create random seed for this epoch
-        let input = create_random_seed(
-            CHECKERBOARD_GRID_SIZE,
-            CHECKERBOARD_CHANNELS,
-            &mut rng,
-        );
+        // Create batch of random seeds for this epoch
+        let inputs: Vec<_> = (0..batch_size)
+            .map(|_| create_random_seed(
+                CHECKERBOARD_GRID_SIZE,
+                CHECKERBOARD_CHANNELS,
+                &mut rng,
+            ))
+            .collect();
 
-        // Train step (multi-step rollout with loss at final step)
-        let (soft_loss, hard_loss) = training_loop.train_step(&input, &target);
+        // Train step with batch (multi-step rollout with loss at final step)
+        let (soft_loss, hard_loss) = training_loop.train_step_batch(&inputs, &target);
 
         // Evaluate periodically
         if epoch % eval_interval == 0 || epoch == epochs - 1 {

@@ -120,15 +120,22 @@ pub fn create_checkerboard_update() -> UpdateModule {
 
 /// Create a smaller update module for faster experimentation.
 ///
-/// Uses fewer hidden layers for quicker training.
+/// Uses fewer hidden layers than full model but enough capacity to learn.
+/// Reference uses 10×256 layers; we use 4×256 as a middle ground.
 /// Respects the unique_connections constraint: out_dim * 2 >= in_dim
 pub fn create_small_checkerboard_update() -> UpdateModule {
     let input_size = CHECKERBOARD_CHANNELS
         + CHECKERBOARD_KERNELS * 2 * CHECKERBOARD_CHANNELS;
 
-    // Gradual reduction respecting constraint: 264→256→128→64→32→16→8
-    // 256*2=512 >= 264 ✓, 128*2=256 >= 256 ✓, etc.
-    let layer_sizes = vec![input_size, 256, 128, 64, 32, 16, CHECKERBOARD_CHANNELS];
+    // Architecture: 264→256×4→128→64→32→16→8 (10 layers total)
+    // Reference uses 264→256×10→128→64→32→16→8→8 (16 layers)
+    // This gives ~2x speedup while maintaining enough capacity
+    let layer_sizes = vec![
+        input_size, // 264
+        256, 256, 256, 256,  // 4 layers of 256 (vs 10 in reference)
+        128, 64, 32, 16,     // Reduction layers
+        CHECKERBOARD_CHANNELS, // 8
+    ];
 
     UpdateModule::new(&layer_sizes)
 }
@@ -316,6 +323,24 @@ mod tests {
         let full_gates = full_model.perception.total_gates() + full_model.update.total_gates();
 
         assert!(small_gates < full_gates, "Small model should have fewer gates");
+        
+        // Verify small model has enough capacity (at least 1000 gates)
+        // Old "small" model had 728 gates which was too shallow
+        assert!(small_gates >= 1000, "Small model needs enough capacity, got {} gates", small_gates);
+    }
+    
+    #[test]
+    fn test_small_model_layer_depth() {
+        // Verify small model has sufficient depth for learning
+        // Reference uses 16 update layers, small should have at least 8
+        let model = create_small_checkerboard_model();
+        
+        let update_layers = model.update.layers.len();
+        assert!(update_layers >= 8, "Small model needs at least 8 update layers, got {}", update_layers);
+        
+        // Verify architecture: 264→256×4→128→64→32→16→8 = 9 layers
+        assert_eq!(model.update.input_size, 264);
+        assert_eq!(model.update.output_channels, 8);
     }
 
     #[test]
