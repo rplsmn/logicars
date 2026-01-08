@@ -265,29 +265,35 @@ Similar structure but computing `dL/dlogits` and `dL/dinputs`.
 
 ### 3.4 Implementation Phases
 
+Each phase has a detailed implementation plan with atomic tasks, tests, and exit criteria.
+
 #### **Phase 1: Basic wgpu Setup** (1-2 days)
 - Add wgpu dependency
 - Create GPU context and device
 - Implement simple test kernel
 - Verify AMD GPU works
+- **Detailed plan**: [`gpu-phase1-plan.md`](gpu-phase1-plan.md)
 
 #### **Phase 2: Forward Pass on GPU** (2-3 days)
 - Implement gate_forward.wgsl
 - Port perception module
 - Port update module
 - Verify numerical equivalence with CPU
+- **Detailed plan**: [`gpu-phase2-plan.md`](gpu-phase2-plan.md)
 
 #### **Phase 3: Backward Pass on GPU** (3-4 days)
 - Implement gradient computation kernels
 - Port BPTT loop
 - Handle gradient accumulation
 - Verify gradient correctness
+- **Detailed plan**: [`gpu-phase3-plan.md`](gpu-phase3-plan.md)
 
 #### **Phase 4: Integration & Optimization** (2-3 days)
 - Integrate with training loop
 - Optimize memory transfers
 - Batch multiple steps on GPU
 - Profile and tune workgroup sizes
+- **Detailed plan**: [`gpu-phase4-plan.md`](gpu-phase4-plan.md)
 
 ---
 
