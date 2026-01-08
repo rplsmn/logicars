@@ -10,12 +10,14 @@
 //! - Sync mode: All cells update simultaneously
 //! - Async mode: Fire rate masking (0.6) for fault tolerance
 //! - Multi-step rollout support
+//! - Rayon parallelization for cell-level operations
 
 use crate::grid::{BoundaryCondition, NGrid, NNeighborhood};
 use crate::optimizer::AdamW;
 use crate::perception::{GateLayer, PerceptionModule};
 use crate::phase_0_1::BinaryOp;
 use crate::update::{DiffLogicCA, UpdateModule};
+use rayon::prelude::*;
 
 /// Fire rate for async training (probability of cell update)
 pub const FIRE_RATE: f64 = 0.6;
@@ -207,20 +209,33 @@ impl TrainingLoop {
     /// Run one step of the CA in synchronous mode
     ///
     /// All cells update simultaneously based on their neighborhoods.
+    /// Uses rayon for parallel cell processing.
     pub fn step_sync(&self, input: &NGrid) -> NGrid {
+        // Create coordinate list for parallel iteration
+        let coords: Vec<(usize, usize)> = (0..input.height)
+            .flat_map(|y| (0..input.width).map(move |x| (x, y)))
+            .collect();
+        
+        // Process all cells in parallel
+        let cell_results: Vec<_> = coords
+            .par_iter()
+            .map(|&(x, y)| {
+                let neighborhood = input.neighborhood(x, y);
+                let next_state = self.model.forward_hard(&neighborhood);
+                (x, y, next_state)
+            })
+            .collect();
+        
+        // Assemble output grid from parallel results
         let mut output = NGrid::new(
             input.width,
             input.height,
             input.channels,
             input.boundary,
         );
-
-        for y in 0..input.height {
-            for x in 0..input.width {
-                let neighborhood = input.neighborhood(x, y);
-                let next_state = self.model.forward_hard(&neighborhood);
-                output.set_cell(x, y, &next_state);
-            }
+        
+        for (x, y, next_state) in cell_results {
+            output.set_cell(x, y, &next_state);
         }
 
         output
@@ -265,6 +280,7 @@ impl TrainingLoop {
     /// Compute MSE loss between predicted and target grids
     ///
     /// loss = sum((predicted - target)²) for all cells and channels
+    /// Uses rayon for parallel reduction.
     pub fn compute_loss(predicted: &NGrid, target: &NGrid) -> f64 {
         assert_eq!(predicted.width, target.width);
         assert_eq!(predicted.height, target.height);
@@ -274,8 +290,8 @@ impl TrainingLoop {
         let target_data = target.raw_data();
 
         pred_data
-            .iter()
-            .zip(target_data.iter())
+            .par_iter()
+            .zip(target_data.par_iter())
             .map(|(p, t)| (p - t).powi(2))
             .sum()
     }
@@ -309,21 +325,19 @@ impl TrainingLoop {
     /// Forward pass through the grid in soft mode (for training)
     ///
     /// Returns the output grid and all intermediate activations needed for backprop.
+    /// Uses rayon for parallel cell processing.
     fn forward_grid_soft(&self, input: &NGrid) -> (NGrid, GridActivations) {
-        let mut output = NGrid::new(
-            input.width,
-            input.height,
-            input.channels,
-            input.boundary,
-        );
-
-        let mut all_neighborhoods = Vec::with_capacity(input.num_cells());
-        let mut all_perception_outputs = Vec::with_capacity(input.num_cells());
-        let mut all_perception_activations = Vec::with_capacity(input.num_cells());
-        let mut all_update_activations = Vec::with_capacity(input.num_cells());
-
-        for y in 0..input.height {
-            for x in 0..input.width {
+        let num_cells = input.num_cells();
+        
+        // Create coordinate list for parallel iteration
+        let coords: Vec<(usize, usize)> = (0..input.height)
+            .flat_map(|y| (0..input.width).map(move |x| (x, y)))
+            .collect();
+        
+        // Process all cells in parallel
+        let cell_results: Vec<_> = coords
+            .par_iter()
+            .map(|&(x, y)| {
                 let neighborhood = input.neighborhood(x, y);
                 
                 // Forward through perception
@@ -334,13 +348,29 @@ impl TrainingLoop {
                 let update_activations = self.model.update.forward_soft(&perception_output);
                 let cell_output = update_activations.last().cloned().unwrap_or_default();
 
-                output.set_cell(x, y, &cell_output);
+                (x, y, cell_output, neighborhood, perception_output, perception_activations, update_activations)
+            })
+            .collect();
+        
+        // Assemble output grid and activations from parallel results
+        let mut output = NGrid::new(
+            input.width,
+            input.height,
+            input.channels,
+            input.boundary,
+        );
+        
+        let mut all_neighborhoods = Vec::with_capacity(num_cells);
+        let mut all_perception_outputs = Vec::with_capacity(num_cells);
+        let mut all_perception_activations = Vec::with_capacity(num_cells);
+        let mut all_update_activations = Vec::with_capacity(num_cells);
 
-                all_neighborhoods.push(neighborhood);
-                all_perception_outputs.push(perception_output);
-                all_perception_activations.push(perception_activations);
-                all_update_activations.push(update_activations);
-            }
+        for (x, y, cell_output, neighborhood, perception_output, perception_activations, update_activations) in cell_results {
+            output.set_cell(x, y, &cell_output);
+            all_neighborhoods.push(neighborhood);
+            all_perception_outputs.push(perception_output);
+            all_perception_activations.push(perception_activations);
+            all_update_activations.push(update_activations);
         }
 
         let activations = GridActivations {
