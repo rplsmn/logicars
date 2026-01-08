@@ -267,47 +267,58 @@ Similar structure but computing `dL/dlogits` and `dL/dinputs`.
 
 Each phase has a detailed implementation plan with atomic tasks, tests, and exit criteria.
 
-#### **Phase 1: Basic wgpu Setup** (1-2 days)
+#### **Phase 1: Basic wgpu Setup** ✅ COMPLETE
 - Add wgpu dependency
 - Create GPU context and device
 - Implement simple test kernel
 - Verify AMD GPU works
 - **Detailed plan**: [`gpu-phase1-plan.md`](gpu-phase1-plan.md)
+- **Status**: PR #31
 
-#### **Phase 2: Forward Pass on GPU** (2-3 days)
+#### **Phase 2: Forward Pass on GPU** ✅ COMPLETE (functionally, not performance)
 - Implement gate_forward.wgsl
 - Port perception module
 - Port update module
 - Verify numerical equivalence with CPU
 - **Detailed plan**: [`gpu-phase2-plan.md`](gpu-phase2-plan.md)
+- **Status**: PR #32
+- **⚠️ Finding**: GPU is still slower than CPU due to dispatch overhead. See phase2 plan for details.
 
-#### **Phase 3: Backward Pass on GPU** (3-4 days)
+#### **Phase 3: Backward Pass on GPU** ⏸️ DEFERRED
 - Implement gradient computation kernels
 - Port BPTT loop
 - Handle gradient accumulation
 - Verify gradient correctness
 - **Detailed plan**: [`gpu-phase3-plan.md`](gpu-phase3-plan.md)
+- **Status**: Deferred - forward pass needs optimization first
 
-#### **Phase 4: Integration & Optimization** (2-3 days)
+#### **Phase 4: Integration & Optimization** ⏸️ DEFERRED
 - Integrate with training loop
 - Optimize memory transfers
 - Batch multiple steps on GPU
 - Profile and tune workgroup sizes
 - **Detailed plan**: [`gpu-phase4-plan.md`](gpu-phase4-plan.md)
+- **Status**: Deferred
 
 ---
 
 ## Part 4: Will GPU Solve the Checkerboard Problem?
 
-### 4.1 Likely: Yes, for These Reasons
+### 4.1 ~~Likely: Yes~~ UNCERTAIN
 
-1. **Different numerical accumulation**: GPU's tree-based reductions may not cancel gradients as exactly, leaving residual signal.
+**Original hypothesis**:
+1. Different numerical accumulation may leave residual gradients
+2. More epochs per hour with faster GPU
+3. Natural batching on GPU
 
-2. **More epochs per hour**: Even if the dynamics are the same, we can run 10-50x more epochs in the same wall-clock time, reaching the ~500 epoch convergence point faster.
+**Reality after Phase 2 implementation**:
+- GPU forward pass is **3.5x slower** than CPU for 16×16 grids
+- Dispatch overhead (~400 dispatches per CA step) dominates
+- Need fused kernels or larger grids (64×64+) for speedup
 
-3. **Batching is natural**: GPU can process entire batches in one kernel, making batch_size=20 or higher practical.
+**Recommendation**: Focus on CPU training. GPU infrastructure exists for future optimization.
 
-### 4.2 Alternative Fixes (If GPU Doesn't Help)
+### 4.2 Alternative Fixes (Current Focus)
 
 1. **Add gradient noise**: Perturb gradients slightly to break symmetry
    ```rust
