@@ -185,6 +185,23 @@ This is expected - JAX runs optimized GPU kernels while we run sequential CPU co
 **Target**: Match or beat JAX CPU performance (2-5x faster than JAX on CPU).
 GPU parity is a stretch goal for Phase 5.
 
+### 4.5 GPU Acceleration (wgpu)
+
+**Status**: ⬜ Planned | **Detailed plans in `reference/gpu-phase*-plan.md`**
+
+GPU acceleration using wgpu for AMD RX 7800 XT (and cross-platform support).
+
+| Phase | Description | Est. Duration | Plan |
+|-------|-------------|---------------|------|
+| GPU 1 | Basic wgpu setup, verify hardware | 1-2 days | `reference/gpu-phase1-plan.md` |
+| GPU 2 | Forward pass on GPU | 2-3 days | `reference/gpu-phase2-plan.md` |
+| GPU 3 | Backward pass on GPU | 3-4 days | `reference/gpu-phase3-plan.md` |
+| GPU 4 | Integration & optimization | 2-3 days | `reference/gpu-phase4-plan.md` |
+
+**Target performance**: 10-30x speedup, 500 epochs in <5 minutes.
+
+See `reference/gpu-plan.md` for architectural overview and analysis.
+
 ---
 
 ## Phase 5: Ecosystem
