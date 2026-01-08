@@ -550,4 +550,66 @@ Expected: The 200-epoch plateau may be shortened with batch_size=2.
 
 ---
 
-**Last Updated**: 2026-01-07
+## Session 2026-01-08: Deep Analysis of Gradient Cancellation
+
+### Key Finding: Gradient Cancellation is Fundamental
+
+**Root Cause Identified:** With checkerboard target (50% black, 50% white) and outputs converging to 0.5, gradient contributions from cells with target=0 (positive gradient) EXACTLY cancel with cells with target=1 (negative gradient).
+
+### Detailed Analysis
+
+**Softmax Saturation Math:**
+- logits[3] = 10.0 → prob[3] ≈ 0.9993
+- Gradient for other logits: `d_prob_i / d_logit_i = prob_i * (1 - prob_i) ≈ 4.5e-5`
+- This is ~22,000x smaller than with uniform logits
+
+**Gradient Cancellation:**
+- With output = 0.5 for all cells:
+  - Cells with target=0 → dL/d_output = +1.0
+  - Cells with target=1 → dL/d_output = -1.0
+- Checkerboard has exactly 128 cells of each → cancels to near-zero
+
+**Training Dynamics Observed:**
+```
+Epoch  0: logits[3]=9.9946, others_avg=0.0004, gap=9.99
+Epoch 10: logits[3]=9.9375, others_avg=0.0042, gap=9.93
+Epoch 20: logits[3]=9.8821, others_avg=0.0081, gap=9.87
+```
+- Gap closing rate: ~0.006 per epoch
+- Projected epochs to escape (gap < 3): ~1200 epochs
+
+**Why Reference Works:**
+1. Reference plateau is ~200 epochs, suggesting faster gap closing
+2. Weight decay provides consistent 0.5% reduction per epoch
+3. Eventually, softmax becomes less saturated and gradients accelerate
+
+**What We Tried:**
+- Lower init (5.0): Worse! Outputs converge to 0.5 immediately
+- Higher init (10.0): Keeps input variance but tiny gradients
+
+### Debug Output Added
+
+```rust
+[DEBUG iter=N] logits: pass-through[3]=X.XX, others_avg=X.XX
+```
+
+This tracks the logit evolution to verify training progress.
+
+### Recommendations
+
+1. **Run longer training** (500+ epochs) to match reference
+2. **Verify reference has same issue** by running notebook
+3. **Potential fixes to try:**
+   - Add small noise to break gradient symmetry
+   - Use curriculum learning (fewer steps initially)
+   - Try different loss functions
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/training.rs` | Added logit tracking debug output |
+
+---
+
+**Last Updated**: 2026-01-08

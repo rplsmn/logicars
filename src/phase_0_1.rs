@@ -104,6 +104,7 @@ impl ProbabilisticGate {
         let mut logits = [0.0; 16];
         // Initialize pass-through gate A (index 3 in reference ordering) to 10.0 for training stability
         // Reference uses 10.0 and it works with JAX autodiff
+        // The high value keeps softmax saturated, preserving input variance early in training
         logits[3] = 10.0;
         Self { logits }
     }

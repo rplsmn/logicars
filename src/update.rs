@@ -933,3 +933,48 @@ mod tests {
         );
     }
 }
+
+    #[test]
+    fn test_gradient_magnitude_with_passthrough() {
+        // Test that gradients are computed correctly for a pass-through initialized gate
+        // This is the key case where training fails
+        
+        let module = UpdateModule::new(&[8, 4, 2, 1]);
+        
+        // Inputs close to 0.5 (like in mid-training)
+        let inputs: Vec<f64> = vec![0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+        let target = 1.0;  // Want high output
+        
+        let activations = module.forward_soft(&inputs);
+        let output = activations.last().unwrap()[0];
+        
+        // Output should be ~0.5 (pass-through)
+        println!("Output: {}", output);
+        assert!((output - 0.5).abs() < 0.1, "Pass-through should give ~0.5");
+        
+        let output_grad = vec![2.0 * (output - target)];  // About -1.0
+        let gradients = module.compute_gradients(&inputs, &activations, &output_grad);
+        
+        // Check gradient magnitudes
+        let mut max_grad = 0.0f64;
+        let mut sum_abs_grad = 0.0f64;
+        let mut num_grads = 0;
+        
+        for layer in &gradients {
+            for gate in layer {
+                for &g in gate {
+                    max_grad = max_grad.max(g.abs());
+                    sum_abs_grad += g.abs();
+                    num_grads += 1;
+                }
+            }
+        }
+        let avg_grad = sum_abs_grad / num_grads as f64;
+        
+        println!("Gradient stats: max={:.6}, avg={:.6}, total grads={}", max_grad, avg_grad, num_grads);
+        
+        // Gradients should NOT be too tiny (that's the bug we're looking for)
+        // With pass-through at prob=0.9993, softmax gradients are ~1e-5
+        // But chain rule through layers should amplify them somewhat
+        assert!(max_grad > 1e-6, "Max gradient too small: {}", max_grad);
+    }

@@ -776,9 +776,31 @@ impl TrainingLoop {
             // Print operation distribution (index 3 = pass-through A)
             let total_gates = op_counts.iter().sum::<usize>();
             let pass_through_pct = 100.0 * op_counts[3] as f64 / total_gates as f64;
+            
+            // Track average logit values for pass-through (index 3) across gates
+            let mut avg_logit_3 = 0.0;
+            let mut avg_logit_others = 0.0;
+            let mut gate_count = 0;
+            for layer in &self.model.update.layers {
+                for gate in &layer.gates {
+                    avg_logit_3 += gate.logits[3];
+                    avg_logit_others += gate.logits.iter().enumerate()
+                        .filter(|(i, _)| *i != 3)
+                        .map(|(_, v)| *v)
+                        .sum::<f64>() / 15.0;
+                    gate_count += 1;
+                }
+            }
+            avg_logit_3 /= gate_count as f64;
+            avg_logit_others /= gate_count as f64;
+            
             eprintln!(
                 "[DEBUG iter={}] global_norm={:.4}, clip_coef={:.4} | grads: avg={:.6}, max={:.6} | pass-through: {:.1}%",
                 self.iteration, global_norm, clip_coef, avg_grad, max_grad, pass_through_pct
+            );
+            eprintln!(
+                "[DEBUG iter={}] logits: pass-through[3]={:.4}, others_avg={:.4}",
+                self.iteration, avg_logit_3, avg_logit_others
             );
         }
     }
