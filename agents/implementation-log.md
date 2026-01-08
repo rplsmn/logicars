@@ -2,16 +2,27 @@
 
 > Compact log for LLM agents. Full history: `agents/archive/`
 
-## Current State (2026-01-07)
+## Current State (2026-01-08)
 
-**Phase 2.1 🚧 IN PROGRESS** | Batch training implemented, matching reference
+**Phase 2.1 🚧 IN PROGRESS** | GPU evaluation complete, focus on CPU training
 
 ### What's Done
 
 - Phase 0: Gate primitives, backprop verified
 - Phase 1.1-1.4: NGrid, Perception, Update, Training modules
 - Phase 1.5: GoL 99.41% accuracy, blinker/glider work
-- Phase 2.1: Checkerboard infrastructure built, **batch training added**
+- Phase 2.1: Checkerboard infrastructure built, batch training added
+- **GPU Phase 1-2**: wgpu forward pass implemented (archived - see below)
+
+### GPU Work Status (ARCHIVED)
+
+**wgpu implementation complete but deferred:**
+- ✅ Forward pass numerically correct
+- ❌ GPU 3.5x slower than CPU (dispatch overhead)
+- ❌ Would need fused kernels (major effort) for speedup
+- 📚 See `reference/burn-evaluation.md` for future GPU strategy using Burn framework
+
+**Current priority**: CPU training convergence (GPU won't fix training dynamics)
 
 ### Code Structure
 
@@ -25,6 +36,7 @@ src/
 ├── circuit.rs        # HardCircuit export, serialization
 ├── phase_0_*.rs      # Foundation: BinaryOp, GateLayer, Circuit
 ├── optimizer.rs      # AdamW (β2=0.99)
+├── gpu/              # ARCHIVED: wgpu GPU implementation
 └── bin/
     ├── train_gol.rs         # GoL training (soft/hard loss, --log-interval)
     └── train_checkerboard.rs # Checkerboard training (batch_size=2)

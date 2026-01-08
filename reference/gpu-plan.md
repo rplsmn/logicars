@@ -337,11 +337,48 @@ Each phase has a detailed implementation plan with atomic tasks, tests, and exit
 
 ## Part 5: Next Steps
 
-1. **Create PR for rayon parallelization** - immediate speedup
-2. **Run 1000 epoch training** - see if CPU eventually converges
-3. **Start wgpu integration** - proof-of-concept kernel
-4. **Benchmark GPU vs CPU** - measure actual speedup
-5. **Full GPU training** - verify checkerboard convergence
+**UPDATED 2026-01-08: GPU Strategy Revision**
+
+After completing Phase 2 (GPU forward pass), the approach has been reconsidered:
+
+### Current Status
+- ✅ wgpu GPU forward pass implemented and numerically correct
+- ❌ GPU is 3.5x slower than CPU (dispatch overhead)
+- ❌ Would require fused kernels (major effort) to achieve speedup
+- ❌ CPU training still not converging (gradient cancellation issue)
+
+### Revised Strategy
+
+1. **Focus on CPU training convergence first**
+   - GPU won't fix training dynamics issues
+   - Run longer training (500+ epochs) to match reference plateau
+   
+2. **Consider Burn framework for future GPU work**
+   - Provides automatic differentiation (no manual gradient shaders)
+   - Automatic kernel fusion (solves dispatch overhead)
+   - Multi-backend: wgpu, CUDA, ROCm (AMD native)
+   - Would require refactoring but eliminates manual GPU code
+   
+3. **Archive current wgpu implementation**
+   - Proves concept, verified numerically correct
+   - Not worth further investment without fused kernels
+
+### Burn Framework Evaluation
+
+See `reference/burn-evaluation.md` for detailed analysis.
+
+Key benefits:
+- `Autodiff<Wgpu>` provides automatic backpropagation
+- `Fusion<Backend>` fuses operations into single kernels
+- Built-in AdamW, training infrastructure
+- Cross-platform GPU support
+
+Trade-off:
+- Requires expressing custom 16-op gates as Burn modules
+- Significant refactoring of core types
+- Learning curve for new API
+
+**Recommendation**: Defer Burn integration to Phase 5.x after CPU training converges.
 
 ---
 
@@ -361,3 +398,58 @@ bytemuck = { version = "1.18", features = ["derive"] }  # For GPU buffer casting
 - [WGSL specification](https://www.w3.org/TR/WGSL/)
 - [ROCm for AMD](https://rocm.docs.amd.com/)
 - [JAX XLA internals](https://jax.readthedocs.io/en/latest/jaxpr.html)
+
+## Appendix C: Burn Framework (Future GPU Strategy)
+
+### Why Burn?
+
+[Burn](https://burn.dev/) is a Rust deep learning framework that could replace the custom wgpu implementation:
+
+```rust
+// Example: Automatic differentiation with Burn
+use burn::backend::{Autodiff, Wgpu};
+use burn::tensor::Tensor;
+
+type Backend = Autodiff<Wgpu>;
+
+// Forward pass is automatically differentiable
+let x: Tensor<Backend, 2> = Tensor::random([32, 32], Distribution::Default, &device);
+let y = x.clone().matmul(x).exp();
+let grads = y.backward();  // Automatic!
+```
+
+### Key Features
+
+1. **Multi-backend**: `Wgpu`, `Cuda`, `Rocm`, `NdArray` (CPU)
+2. **Autodiff**: Wrap any backend with `Autodiff<B>` for backpropagation
+3. **Fusion**: `Fusion<B>` decorator auto-fuses operations → single GPU dispatch
+4. **Built-in optimizers**: AdamW, SGD, etc.
+
+### What Would Need to Change
+
+1. **Core types**: `NGrid` → Burn `Tensor<B, 3>` (H × W × C)
+2. **GateLayer**: Custom Burn module implementing 16-op softmax gate
+3. **Training loop**: Use Burn's `Learner` or custom loop with Burn tensors
+4. **Optimizers**: Replace custom AdamW with `burn::optim::AdamW`
+
+### Estimated Effort
+
+| Task | Effort | Notes |
+|------|--------|-------|
+| Learn Burn API | 1-2 days | Good documentation |
+| Refactor core types | 2-3 days | NGrid, NNeighborhood → Tensors |
+| Custom gate module | 1-2 days | 16-op softmax as Burn Module |
+| Training integration | 1-2 days | BPTT with Burn autodiff |
+| Total | ~1 week | Plus testing/debugging |
+
+### When to Adopt
+
+**Prerequisites:**
+1. CPU training converges (proves algorithm is correct)
+2. Performance becomes the bottleneck (not training dynamics)
+
+**Benefits at that point:**
+- 10-50x speedup with automatic GPU acceleration
+- No manual gradient computation
+- Automatic kernel fusion
+- Easy deployment to CUDA/ROCm/WebGPU
