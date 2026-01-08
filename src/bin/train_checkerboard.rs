@@ -9,6 +9,7 @@
 //!   --small           Use smaller model for fast testing
 //!   --epochs=N        Number of epochs to train (default: 500, 100 for small)
 //!   --log-interval=N  How often to log accuracy/loss (default: 50, 10 for small)
+//!   --noise[=SCALE]   Enable gradient noise (default scale: 0.001)
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
@@ -61,6 +62,16 @@ fn main() {
     let default_log_interval = if use_small_model { 10 } else { 50 };
     let eval_interval = custom_log_interval.unwrap_or(default_log_interval);
 
+    // Parse --noise=N for gradient noise (default 0.001 if --noise with no value)
+    let gradient_noise: Option<f64> = args
+        .iter()
+        .find(|a| a.starts_with("--noise"))
+        .map(|a| {
+            a.strip_prefix("--noise=")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.001) // Default noise scale from gpu-plan.md §4.2
+        });
+
     // Create model
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
@@ -80,7 +91,8 @@ fn main() {
     println!("  Total: {} gates\n", model.total_gates());
 
     // Create config
-    let config = TrainingConfig::checkerboard_sync();
+    let mut config = TrainingConfig::checkerboard_sync();
+    config.gradient_noise = gradient_noise;
     let batch_size = config.batch_size;
     println!("Training configuration:");
     println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
@@ -90,6 +102,11 @@ fn main() {
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
     println!("  Batch size: {}", batch_size);
+    if let Some(noise) = gradient_noise {
+        println!("  Gradient noise: {} (enabled)", noise);
+    } else {
+        println!("  Gradient noise: disabled");
+    }
     println!();
 
     // Create training loop
