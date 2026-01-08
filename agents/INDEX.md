@@ -40,6 +40,7 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 - `phase_0_3.rs` - Circuit training (superseded by training.rs)
 - `phase_1_1.rs` - Old perception/grid (superseded by perception.rs, grid.rs)
 - `trainer.rs` - Old gate trainer (superseded by training.rs)
+- `gpu/` - WGPU-based GPU acceleration code (Phase 1 basic wgpu setup merged). Status: PAUSED/FROZEN — experimental GPU work; do NOT use or rely on this while CPU implementation is the active development track.
 
 ---
 
