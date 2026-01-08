@@ -36,6 +36,10 @@ pub mod checkerboard;
 // Hard Circuit Export (Phase 3.2)
 pub mod circuit;
 
+// GPU acceleration (Phase 4.5)
+#[cfg(feature = "gpu")]
+pub mod gpu;
+
 // Re-export key types
 pub use phase_0_1::{BinaryOp, ProbabilisticGate};
 pub use optimizer::AdamW;

@@ -83,19 +83,19 @@ Our Rust implementation may have slower logit gap closure due to exact gradient 
 
 ---
 
-## Part 2: AMD RX 7800 XT GPU Options
+## Part 2: AMD RX 6800 XT GPU Options
 
 ### 2.1 Hardware Specifications
 
-| Spec | RX 7800 XT |
+| Spec | RX 6800 XT |
 |------|------------|
-| Architecture | RDNA 3 |
-| Compute Units | 60 |
-| Stream Processors | 3840 |
+| Architecture | RDNA 2 |
+| Compute Units | 72 |
+| Stream Processors | 4608 |
 | Memory | 16GB GDDR6 |
-| Memory Bandwidth | 624 GB/s |
-| FP32 TFLOPS | 37.3 |
-| ROCm Support | Yes (6.0+) |
+| Memory Bandwidth | 512 GB/s |
+| FP32 TFLOPS | 20.74 |
+| ROCm Support | Yes (5.0+) |
 
 ### 2.2 GPU Framework Options for Rust
 
@@ -267,47 +267,58 @@ Similar structure but computing `dL/dlogits` and `dL/dinputs`.
 
 Each phase has a detailed implementation plan with atomic tasks, tests, and exit criteria.
 
-#### **Phase 1: Basic wgpu Setup** (1-2 days)
+#### **Phase 1: Basic wgpu Setup** ✅ COMPLETE
 - Add wgpu dependency
 - Create GPU context and device
 - Implement simple test kernel
 - Verify AMD GPU works
 - **Detailed plan**: [`gpu-phase1-plan.md`](gpu-phase1-plan.md)
+- **Status**: PR #31
 
-#### **Phase 2: Forward Pass on GPU** (2-3 days)
+#### **Phase 2: Forward Pass on GPU** ✅ COMPLETE (functionally, not performance)
 - Implement gate_forward.wgsl
 - Port perception module
 - Port update module
 - Verify numerical equivalence with CPU
 - **Detailed plan**: [`gpu-phase2-plan.md`](gpu-phase2-plan.md)
+- **Status**: PR #32
+- **⚠️ Finding**: GPU is still slower than CPU due to dispatch overhead. See phase2 plan for details.
 
-#### **Phase 3: Backward Pass on GPU** (3-4 days)
+#### **Phase 3: Backward Pass on GPU** ⏸️ DEFERRED
 - Implement gradient computation kernels
 - Port BPTT loop
 - Handle gradient accumulation
 - Verify gradient correctness
 - **Detailed plan**: [`gpu-phase3-plan.md`](gpu-phase3-plan.md)
+- **Status**: Deferred - forward pass needs optimization first
 
-#### **Phase 4: Integration & Optimization** (2-3 days)
+#### **Phase 4: Integration & Optimization** ⏸️ DEFERRED
 - Integrate with training loop
 - Optimize memory transfers
 - Batch multiple steps on GPU
 - Profile and tune workgroup sizes
 - **Detailed plan**: [`gpu-phase4-plan.md`](gpu-phase4-plan.md)
+- **Status**: Deferred
 
 ---
 
 ## Part 4: Will GPU Solve the Checkerboard Problem?
 
-### 4.1 Likely: Yes, for These Reasons
+### 4.1 ~~Likely: Yes~~ UNCERTAIN
 
-1. **Different numerical accumulation**: GPU's tree-based reductions may not cancel gradients as exactly, leaving residual signal.
+**Original hypothesis**:
+1. Different numerical accumulation may leave residual gradients
+2. More epochs per hour with faster GPU
+3. Natural batching on GPU
 
-2. **More epochs per hour**: Even if the dynamics are the same, we can run 10-50x more epochs in the same wall-clock time, reaching the ~500 epoch convergence point faster.
+**Reality after Phase 2 implementation**:
+- GPU forward pass is **3.5x slower** than CPU for 16×16 grids
+- Dispatch overhead (~400 dispatches per CA step) dominates
+- Need fused kernels or larger grids (64×64+) for speedup
 
-3. **Batching is natural**: GPU can process entire batches in one kernel, making batch_size=20 or higher practical.
+**Recommendation**: Focus on CPU training. GPU infrastructure exists for future optimization.
 
-### 4.2 Alternative Fixes (If GPU Doesn't Help)
+### 4.2 Alternative Fixes (Current Focus)
 
 1. **Add gradient noise**: Perturb gradients slightly to break symmetry
    ```rust
@@ -326,11 +337,48 @@ Each phase has a detailed implementation plan with atomic tasks, tests, and exit
 
 ## Part 5: Next Steps
 
-1. **Create PR for rayon parallelization** - immediate speedup
-2. **Run 1000 epoch training** - see if CPU eventually converges
-3. **Start wgpu integration** - proof-of-concept kernel
-4. **Benchmark GPU vs CPU** - measure actual speedup
-5. **Full GPU training** - verify checkerboard convergence
+**UPDATED 2026-01-08: GPU Strategy Revision**
+
+After completing Phase 2 (GPU forward pass), the approach has been reconsidered:
+
+### Current Status
+- ✅ wgpu GPU forward pass implemented and numerically correct
+- ❌ GPU is 3.5x slower than CPU (dispatch overhead)
+- ❌ Would require fused kernels (major effort) to achieve speedup
+- ❌ CPU training still not converging (gradient cancellation issue)
+
+### Revised Strategy
+
+1. **Focus on CPU training convergence first**
+   - GPU won't fix training dynamics issues
+   - Run longer training (500+ epochs) to match reference plateau
+   
+2. **Consider Burn framework for future GPU work**
+   - Provides automatic differentiation (no manual gradient shaders)
+   - Automatic kernel fusion (solves dispatch overhead)
+   - Multi-backend: wgpu, CUDA, ROCm (AMD native)
+   - Would require refactoring but eliminates manual GPU code
+   
+3. **Archive current wgpu implementation**
+   - Proves concept, verified numerically correct
+   - Not worth further investment without fused kernels
+
+### Burn Framework Evaluation
+
+See `reference/burn-evaluation.md` for detailed analysis.
+
+Key benefits:
+- `Autodiff<Wgpu>` provides automatic backpropagation
+- `Fusion<Backend>` fuses operations into single kernels
+- Built-in AdamW, training infrastructure
+- Cross-platform GPU support
+
+Trade-off:
+- Requires expressing custom 16-op gates as Burn modules
+- Significant refactoring of core types
+- Learning curve for new API
+
+**Recommendation**: Defer Burn integration to Phase 5.x after CPU training converges.
 
 ---
 
@@ -350,3 +398,58 @@ bytemuck = { version = "1.18", features = ["derive"] }  # For GPU buffer casting
 - [WGSL specification](https://www.w3.org/TR/WGSL/)
 - [ROCm for AMD](https://rocm.docs.amd.com/)
 - [JAX XLA internals](https://jax.readthedocs.io/en/latest/jaxpr.html)
+
+## Appendix C: Burn Framework (Future GPU Strategy)
+
+### Why Burn?
+
+[Burn](https://burn.dev/) is a Rust deep learning framework that could replace the custom wgpu implementation:
+
+```rust
+// Example: Automatic differentiation with Burn
+use burn::backend::{Autodiff, Wgpu};
+use burn::tensor::Tensor;
+
+type Backend = Autodiff<Wgpu>;
+
+// Forward pass is automatically differentiable
+let x: Tensor<Backend, 2> = Tensor::random([32, 32], Distribution::Default, &device);
+let y = x.clone().matmul(x).exp();
+let grads = y.backward();  // Automatic!
+```
+
+### Key Features
+
+1. **Multi-backend**: `Wgpu`, `Cuda`, `Rocm`, `NdArray` (CPU)
+2. **Autodiff**: Wrap any backend with `Autodiff<B>` for backpropagation
+3. **Fusion**: `Fusion<B>` decorator auto-fuses operations → single GPU dispatch
+4. **Built-in optimizers**: AdamW, SGD, etc.
+
+### What Would Need to Change
+
+1. **Core types**: `NGrid` → Burn `Tensor<B, 3>` (H × W × C)
+2. **GateLayer**: Custom Burn module implementing 16-op softmax gate
+3. **Training loop**: Use Burn's `Learner` or custom loop with Burn tensors
+4. **Optimizers**: Replace custom AdamW with `burn::optim::AdamW`
+
+### Estimated Effort
+
+| Task | Effort | Notes |
+|------|--------|-------|
+| Learn Burn API | 1-2 days | Good documentation |
+| Refactor core types | 2-3 days | NGrid, NNeighborhood → Tensors |
+| Custom gate module | 1-2 days | 16-op softmax as Burn Module |
+| Training integration | 1-2 days | BPTT with Burn autodiff |
+| Total | ~1 week | Plus testing/debugging |
+
+### When to Adopt
+
+**Prerequisites:**
+1. CPU training converges (proves algorithm is correct)
+2. Performance becomes the bottleneck (not training dynamics)
+
+**Benefits at that point:**
+- 10-50x speedup with automatic GPU acceleration
+- No manual gradient computation
+- Automatic kernel fusion
+- Easy deployment to CUDA/ROCm/WebGPU
