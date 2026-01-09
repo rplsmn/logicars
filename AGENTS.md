@@ -11,6 +11,7 @@
 5. **`plans/INDEX.md`** - Implementation plans (performance, GPU, serialization) - read only when working on specific subsystems
 
 **Token-saving tips**:
+
 - **Code navigation**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
 - **Planning documents**: Use `plans/INDEX.md` to find implementation plans (performance, GPU, serialization). Only read full plan documents when working on that specific subsystem.
 - **Completed work**: Don't re-read completed phase plans unless debugging. Check `agents/plan.md` for phase status (✅/🚧/⬜).
@@ -164,12 +165,14 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 ### Document Maintenance Rules
 
 **`agents/plan.md`** (Can be longer, ~500 lines):
+
 - Full roadmap, all phases, exit criteria
 - Update when: phase completes, requirements change, major architectural shift
 - Mark phases with ✅/🚧/⬜ status
 - Keep technical details (hyperparameters, architectures)
 
 **`agents/implementation-log.md`** (MUST stay <100 lines):
+
 - **Purpose**: Prime LLM on current state and boundaries only
 - **NOT a detailed plan** - that goes in `plans/phase-X.X-name.md`
 - Update when: phase completes, boundaries change
@@ -177,6 +180,7 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 - Keep: current phase pointer, boundaries (what NOT to do), critical learnings
 
 **After each phase completion**:
+
 1. Update implementation-log.md: mark phase done, update current phase, check line count
 2. Update plan.md: mark phase ✅, update status table if needed
 3. Archive detailed work in git commits (don't bloat the log)
@@ -184,14 +188,23 @@ See `agents/implementation-log.md` for detailed progress. The project follows a 
 ### Quick Development Steps
 
 1. Read phase requirements from `agents/plan.md`
-2. Create detailed implementation plan in `plans/phase-X.X-name.md`
-3. Create TodoWrite list with specific tasks
-4. Write unit tests for core functionality first
-5. Implement core logic, run `cargo test --lib` continuously
-6. Verify all exit criteria met
-7. Commit with detailed message (never to main)
-8. Push branch and create PR
-9. After human approval: update docs (keep log <100 lines), merge PR
+
+IF `plans/phase-X.X-name.md` for the current phase DOESN'T EXIST
+
+1. Create detailed implementation plan in `plans/phase-X.X-name.md`
+2. Commit with detailed message to plan/ branch (never to main)
+3. Push branch and create PR
+4. After human approval: update docs (keep log <100 lines), merge PR
+
+IF `plans/phase-X.X-name.md` for the current phase ALREADY EXISTS (committed recently)
+
+1. Create TodoWrite list with specific tasks
+2. Write unit tests for core functionality first
+3. Implement core logic, run `cargo test --lib` continuously
+4. Verify all exit criteria met
+5. Commit with detailed message (never to main)
+6. Push branch and create PR
+7. After human approval: update docs (keep log <100 lines), merge PR
 
 ### Long-Running Tasks
 

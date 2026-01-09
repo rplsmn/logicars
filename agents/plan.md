@@ -520,27 +520,6 @@ See Phase 2.1a section above.
 
 ---
 
-## Long-Running Tasks Protocol
-
-For training runs > 10 epochs:
-
-1. **Don't run yourself** - provide command to human
-2. **Complete other work first** - maximize independence
-3. **Clear instructions** - explain what to look for
-4. **Wait for feedback** - adjust based on results
-
-Example:
-
-```bash
-# Training will take ~30 minutes
-cargo run --bin train_checkerboard --release
-
-# Expected: 100% accuracy around epoch 500
-# Report final accuracy and check checkerboard_sync_log.csv
-```
-
----
-
 ## Test Commands
 
 ```bash
