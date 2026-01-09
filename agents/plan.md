@@ -171,8 +171,6 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 - ✅ All results documented in implementation-log.md
 - ✅ Phase 2.1 marked ✅ COMPLETE in plan.md
 
-**Estimated effort**: 8-10 hours
-
 **Implementation details**: See `plans/phase-2.1a-analysis.md` (to be created)
 
 ---
@@ -262,8 +260,6 @@ print(model.gate_distribution())
 - ✅ Can reproduce checkerboard training from Python
 - ✅ Basic documentation and examples
 
-**Estimated effort**: 1-2 weeks
-
 **Implementation details**: See `plans/phase-2.5-pyo3.md` (to be created)
 
 ---
@@ -278,7 +274,7 @@ print(model.gate_distribution())
 - 927 active gates (reference metric)
 - 15 generation steps
 
-**Development environment**: Python (Jupyter notebooks preferred)
+**Development environment**: Python (Quarto preferred)
 
 **Exit criteria**:
 
@@ -392,8 +388,6 @@ print(model.gate_distribution())
 - ✅ `AGENTS.md` updated
 - ✅ `reference/` contains only reference materials
 
-**Estimated effort**: 30-60 minutes
-
 ---
 
 ### Phase B: Complete Phase 2.1a ⬜
@@ -436,8 +430,6 @@ See Phase 2.1a section above.
 - ✅ All 148+ tests pass
 - ✅ `agents/INDEX.md` accurate
 - ✅ Implementation log compacted
-
-**Estimated effort**: 4-6 hours
 
 ---
 

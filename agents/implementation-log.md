@@ -13,6 +13,7 @@
 ### Major Milestone: Phase 2.1 Complete ✅
 
 **Checkerboard training succeeded!** (2026-01-09)
+
 - Epoch 512: First 100% hard accuracy
 - Epochs 512-637: Maintained 100% accuracy, hard_loss=0.0
 - Total training time: ~35 minutes (2121 seconds)
@@ -41,7 +42,7 @@ This validates the N-bit architecture generalizes beyond GoL (C=1) to multi-chan
 
 **See**: `agents/plan.md` → "Maintenance Plan (Current Sprint)" → "Phase A"
 
-### Tasks (30-60 minutes total)
+### Tasks
 
 1. **Create `plans/` folder**
 2. **Move 14 planning documents** from `reference/` to `plans/`:
@@ -79,6 +80,7 @@ This validates the N-bit architecture generalizes beyond GoL (C=1) to multi-chan
 **See**: `agents/plan.md` → "Active Phase" → "Phase 2.1a"
 
 **Tasks**:
+
 1. Gate distribution analysis (which gates were learned?)
 2. Visual reconstruction GIF (20-step rollout animation)
 3. Generalization test (64×64 grid, >95% accuracy)
@@ -91,6 +93,7 @@ This validates the N-bit architecture generalizes beyond GoL (C=1) to multi-chan
 **See**: `agents/plan.md` → "Maintenance Plan" → "Phase C"
 
 **Tasks**:
+
 1. Audit and remove legacy `phase_*.rs` files (keep phase_0_1.rs, rename to gates.rs)
 2. Clean up 17 binaries (keep core training, remove debug_*)
 3. Update `agents/INDEX.md` to reflect new structure
@@ -167,16 +170,19 @@ cargo build --release               # Always use release for training
 ## 📚 Documentation Structure
 
 **For high-level planning**:
+
 - `agents/plan.md` - Full roadmap, phase descriptions, exit criteria
 - `agents/INDEX.md` - Code navigation (file:line references)
 - `AGENTS.md` - Getting started, workflow
 
 **For detailed implementation** (to be created):
+
 - `plans/phase-2.1a-analysis.md` - Gate analysis, GIF export, generalization
 - `plans/phase-2.5-pyo3.md` - PyO3 bindings specification
 - `plans/perf-*.md` - Performance optimization details (being moved from reference/)
 
 **Reference materials**:
+
 - `reference/diffLogic_CA.ipynb` - Ground truth (ALWAYS TRUST THIS)
 - `reference/difflogic_ca.py` - Compacted Python (may have errors)
 - `reference/README.md` - Paper summary
@@ -187,21 +193,25 @@ cargo build --release               # Always use release for training
 ## 🔮 Roadmap Ahead
 
 **Immediate** (this week):
+
 - Phase A: Documentation reorganization (30-60 min)
 - Phase B: Checkerboard analysis (8-10 hours)
 - Phase C: Code refactoring (4-6 hours)
 
 **Next experiments**:
+
 - Phase 2.2: Async checkerboard (self-healing)
 - Phase 2.3: Growing Lizard (C=128, morphogenesis)
 
 **Strategic pivot**:
+
 - Phase 2.5: Minimal PyO3 bindings (1-2 weeks) ← **Before Colored G**
 - Phase 2.4: Colored G (C=64, 8-color palette) ← **After PyO3**
 
 **Rationale**: Colored G needs proper visualization (matplotlib). Building PyO3 after Lizard provides better development experience and informed API design.
 
 **Long-term**:
+
 - Phase 5.1: Production PyO3 API
 - Phase 5.2: extendr R bindings (both Python AND R - yes, it's possible!)
 - Phase 5.3: Visualization tools
