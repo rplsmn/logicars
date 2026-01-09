@@ -12,11 +12,12 @@
 //!   --noise[=SCALE]   Enable gradient noise (default scale: 0.001)
 //!   --log=FILE        Write training log to file (append mode)
 //!   --full            Run without epoch limit (until interrupted)
+//!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
     create_checkerboard_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate,
+    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate, HardCircuit,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
 };
@@ -86,6 +87,13 @@ fn main() {
     // Parse --full for unlimited epochs
     let unlimited_epochs = args.iter().any(|a| a == "--full");
 
+    // Parse --save=PATH for model saving
+    let save_path: Option<String> = args
+        .iter()
+        .find(|a| a.starts_with("--save="))
+        .and_then(|a| a.strip_prefix("--save="))
+        .map(|s| s.to_string());
+
     // Create model
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
@@ -127,6 +135,9 @@ fn main() {
     }
     if let Some(ref log_path) = log_file {
         println!("  Log file: {}", log_path);
+    }
+    if let Some(ref save) = save_path {
+        println!("  Model save path: {}", save);
     }
     println!();
 
@@ -279,4 +290,20 @@ fn main() {
     println!("  Total time: {:.1}s", total_time);
     println!("  Best accuracy: {:.2}%", best_accuracy * 100.0);
     println!("  Gates: {}", training_loop.model.total_gates());
+
+    // Save model if requested
+    if let Some(ref path) = save_path {
+        println!("\n=== Saving Model ===");
+        let circuit = HardCircuit::from_soft(&training_loop.model);
+        match circuit.save(path) {
+            Ok(()) => {
+                println!("  Saved HardCircuit to: {}", path);
+                println!("  Total gates: {}", circuit.total_gate_count());
+                println!("  Active gates: {}", circuit.active_gate_count());
+            }
+            Err(e) => {
+                eprintln!("  Error saving model: {}", e);
+            }
+        }
+    }
 }
