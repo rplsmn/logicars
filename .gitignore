@@ -1,8 +1,12 @@
 # My instructions to paste into CLI
 human.md
 
+# Target folder for Rust
 /target
-human.md
+
+# Training logs and profiling data
+perf.data
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
