@@ -282,9 +282,9 @@ sudo apt install linux-tools-generic
 perf record -g cargo run --bin train_checkerboard --release -- --small --epochs=10
 perf report
 
-# Or use flamegraph
+# Or use flamegraph (recommended - visual output)
 cargo install flamegraph
-cargo flamegraph --bin train_checkerboard --release -- --small --epochs=10
+RUSTFLAGS="-C target-cpu=native" cargo flamegraph --bin train_checkerboard --release -- --small --epochs=10
 ```
 
 This will confirm whether:
@@ -292,6 +292,59 @@ This will confirm whether:
 - Softmax computation overhead
 - Memory allocation overhead
 - Specific hot functions
+
+### Reading Profiling Results
+
+#### Flamegraph (flamegraph.svg)
+
+Open the generated `flamegraph.svg` in a browser. Key things to look for:
+
+1. **Width = time spent**: Wider bars = more time. Focus on the widest bars first.
+
+2. **Call stack depth**: Bars stack vertically. The bottom is `main()`, top is leaf functions.
+
+3. **Hot functions to look for**:
+   - `execute_soft` / `probabilities` - gate operations (target for SIMD/caching)
+   - `softmax` / `exp` - softmax computation (target for caching)
+   - `compute_gradients` - backward pass
+   - `forward_grid_soft` - forward pass
+   - `alloc` / `dealloc` / `clone` - memory allocation overhead
+   - `par_iter` / `rayon` - parallelization overhead
+
+4. **Interpreting results**:
+   - If `probabilities()` is >10% of time → cache softmax optimization worthwhile
+   - If `alloc/clone` significant → buffer pooling worthwhile
+   - If `execute_soft` dominant → SIMD or f32 conversion worthwhile
+   - If `exp()` dominant → f32 will help (f32 exp is faster than f64)
+
+5. **Click to zoom**: Click on any bar to zoom into that subtree.
+
+#### perf report
+
+```bash
+perf report --no-children --sort=dso,symbol
+```
+
+Key columns:
+- `Overhead` - percentage of total time
+- `Symbol` - function name
+
+Look for functions with >5% overhead as optimization targets.
+
+#### Example interpretation
+
+```
+40%  logicars::phase_0_1::ProbabilisticGate::execute_soft
+25%  logicars::phase_0_1::ProbabilisticGate::probabilities
+15%  logicars::training::TrainingLoop::accumulate_gradients
+10%  alloc::vec::Vec<T>::clone
+```
+
+This would suggest:
+1. Gate operations are the bottleneck (40%+25% = 65%)
+2. Caching probabilities would eliminate 25% of time
+3. Memory allocation (clone) is 10% - buffer pooling could help
+4. f32 conversion would speed up the 65% gate operations
 
 ---
 
