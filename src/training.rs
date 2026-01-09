@@ -115,6 +115,24 @@ impl TrainingConfig {
     }
 }
 
+/// Per-cell gradient results for parallel backward pass
+///
+/// This struct holds gradients computed for a single cell, allowing
+/// parallel computation followed by sequential accumulation.
+struct CellGradients {
+    /// Update gradients: [layer_idx][gate_idx][16 logits]
+    update_grads: Vec<Vec<[f64; 16]>>,
+    /// Perception gradients: [kernel_idx][channel_grads]
+    /// where channel_grads = [layer_idx][gate_idx][16 logits]
+    perception_grads: Vec<Vec<Vec<Vec<[f64; 16]>>>>,
+    /// Input gradients for 9 neighborhood positions × channels
+    input_grads: Vec<f64>,
+    /// Cell x position for distributing input gradients
+    x: usize,
+    /// Cell y position for distributing input gradients
+    y: usize,
+}
+
 /// Simple random number generator (xorshift64)
 /// Used for fire rate masking in async training
 #[derive(Debug, Clone)]
@@ -514,6 +532,7 @@ impl TrainingLoop {
     ///
     /// This computes gradients for one sample and ADDS them to the provided accumulators.
     /// Used for batch training: accumulate across samples, then apply once.
+    /// Uses rayon for parallel cell processing within each step.
     fn accumulate_gradients(
         &self,
         step_grids: &[NGrid],
@@ -563,8 +582,59 @@ impl TrainingLoop {
         for step in (0..num_steps).rev() {
             let input_grid = &step_grids[step];
             let activations = &step_activations[step];
+            let width = input_grid.width;
 
-            // Gradient w.r.t. previous grid (for chaining to earlier steps)
+            // PARALLEL: Compute all cell gradients in parallel
+            let cell_grads: Vec<CellGradients> = (0..num_cells)
+                .into_par_iter()
+                .map(|cell_idx| {
+                    let x = cell_idx % width;
+                    let y = cell_idx / width;
+
+                    // Get output gradient for this cell
+                    let output_grads: Vec<f64> = (0..channels)
+                        .map(|c| grid_grads.get(x as isize, y as isize, c))
+                        .collect();
+
+                    // Backprop through update module
+                    let update_grads = self.model.update.compute_gradients(
+                        &activations.perception_outputs[cell_idx],
+                        &activations.update_activations[cell_idx],
+                        &output_grads,
+                    );
+
+                    // Compute gradient w.r.t. perception output
+                    let perception_output_grads = self.compute_perception_output_grads(
+                        &activations.perception_outputs[cell_idx],
+                        &activations.update_activations[cell_idx],
+                        &output_grads,
+                    );
+
+                    // Backprop through perception module
+                    let perception_grads = self.model.perception.compute_gradients(
+                        &activations.neighborhoods[cell_idx],
+                        &activations.perception_activations[cell_idx],
+                        &perception_output_grads,
+                    );
+
+                    // Compute gradient w.r.t. input grid (for BPTT)
+                    let input_grads = self.compute_input_grads(
+                        &activations.neighborhoods[cell_idx],
+                        &activations.perception_activations[cell_idx],
+                        &perception_output_grads,
+                    );
+
+                    CellGradients {
+                        update_grads,
+                        perception_grads,
+                        input_grads,
+                        x,
+                        y,
+                    }
+                })
+                .collect();
+
+            // SEQUENTIAL: Merge gradients and distribute to prev_grid_grads
             let mut prev_grid_grads = NGrid::new(
                 input_grid.width,
                 input_grid.height,
@@ -572,25 +642,9 @@ impl TrainingLoop {
                 input_grid.boundary,
             );
 
-            // Process each cell
-            for cell_idx in 0..num_cells {
-                let x = cell_idx % input_grid.width;
-                let y = cell_idx / input_grid.width;
-
-                // Get output gradient for this cell
-                let output_grads: Vec<f64> = (0..channels)
-                    .map(|c| grid_grads.get(x as isize, y as isize, c))
-                    .collect();
-
-                // Backprop through update module
-                let update_grads = self.model.update.compute_gradients(
-                    &activations.perception_outputs[cell_idx],
-                    &activations.update_activations[cell_idx],
-                    &output_grads,
-                );
-
+            for cell_grad in cell_grads {
                 // Accumulate update gradients
-                for (layer_idx, layer_grads) in update_grads.iter().enumerate() {
+                for (layer_idx, layer_grads) in cell_grad.update_grads.iter().enumerate() {
                     for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                         for i in 0..16 {
                             update_grad_accum[layer_idx][gate_idx][i] += gate_grad[i];
@@ -598,22 +652,8 @@ impl TrainingLoop {
                     }
                 }
 
-                // Compute gradient w.r.t. perception output
-                let perception_output_grads = self.compute_perception_output_grads(
-                    &activations.perception_outputs[cell_idx],
-                    &activations.update_activations[cell_idx],
-                    &output_grads,
-                );
-
-                // Backprop through perception module
-                let perception_grads = self.model.perception.compute_gradients(
-                    &activations.neighborhoods[cell_idx],
-                    &activations.perception_activations[cell_idx],
-                    &perception_output_grads,
-                );
-
                 // Accumulate perception gradients
-                for (kernel_idx, kernel_grads) in perception_grads.iter().enumerate() {
+                for (kernel_idx, kernel_grads) in cell_grad.perception_grads.iter().enumerate() {
                     for channel_grads in kernel_grads {
                         for (layer_idx, layer_grads) in channel_grads.iter().enumerate() {
                             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
@@ -626,16 +666,7 @@ impl TrainingLoop {
                     }
                 }
 
-                // Compute gradient w.r.t. input grid (for BPTT)
-                // The neighborhood contains 9 cells (center + 8 neighbors)
-                // Gradient flows back to these 9 cells
-                let input_grads = self.compute_input_grads(
-                    &activations.neighborhoods[cell_idx],
-                    &activations.perception_activations[cell_idx],
-                    &perception_output_grads,
-                );
-
-                // Distribute gradients to the 9 neighborhood positions
+                // Distribute input gradients to the 9 neighborhood positions
                 let neighborhood_offsets: [(isize, isize); 9] = [
                     (-1, -1), (0, -1), (1, -1),
                     (-1, 0),  (0, 0),  (1, 0),
@@ -643,8 +674,8 @@ impl TrainingLoop {
                 ];
 
                 for (pos_idx, &(dx, dy)) in neighborhood_offsets.iter().enumerate() {
-                    let nx = x as isize + dx;
-                    let ny = y as isize + dy;
+                    let nx = cell_grad.x as isize + dx;
+                    let ny = cell_grad.y as isize + dy;
 
                     // Handle boundaries
                     let (nx_wrapped, ny_wrapped) = if input_grid.boundary == BoundaryCondition::Periodic {
@@ -661,9 +692,9 @@ impl TrainingLoop {
 
                     for c in 0..channels {
                         let grad_idx = pos_idx * channels + c;
-                        if grad_idx < input_grads.len() {
+                        if grad_idx < cell_grad.input_grads.len() {
                             let current = prev_grid_grads.get(nx_wrapped as isize, ny_wrapped as isize, c);
-                            prev_grid_grads.set(nx_wrapped, ny_wrapped, c, current + input_grads[grad_idx]);
+                            prev_grid_grads.set(nx_wrapped, ny_wrapped, c, current + cell_grad.input_grads[grad_idx]);
                         }
                     }
                 }
