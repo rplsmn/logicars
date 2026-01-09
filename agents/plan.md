@@ -45,6 +45,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Goal**: Implement and verify differentiable logic gates with backpropagation.
 
 **What was built**:
+
 - 16 binary operations (AND, OR, XOR, NAND, etc.)
 - Probabilistic gates with soft/hard modes
 - Gate layers with backpropagation
@@ -53,6 +54,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Key files**: `src/phase_0_1.rs`, `src/phase_0_2.rs`, `src/phase_0_3.rs`
 
 **Exit criteria met**:
+
 - ✅ All 16 binary ops implemented
 - ✅ Soft mode: softmax-weighted average (differentiable)
 - ✅ Hard mode: argmax selection (discrete)
@@ -66,6 +68,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Goal**: Build complete N-channel CA architecture that works for any channel count (C=1 to C=128).
 
 **What was built**:
+
 - `NGrid`: Multi-channel grid with boundary conditions
 - `PerceptionModule`: Multi-kernel perception with configurable layers
 - `UpdateModule`: Deep network for state updates
@@ -73,6 +76,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 - `TrainingLoop`: BPTT with AdamW optimizer
 
 **Validation**: Game of Life (C=1)
+
 - Training: 99.41% hard accuracy
 - Blinker and glider patterns work correctly
 - Model: 1647 gates total (240 perception + 1407 update)
@@ -80,6 +84,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Key files**: `src/grid.rs`, `src/perception.rs`, `src/update.rs`, `src/training.rs`
 
 **Exit criteria met**:
+
 - ✅ Architecture supports C=1 to C=128 channels
 - ✅ Perception extracts features from 3×3 neighborhoods
 - ✅ Update network decides state transitions
@@ -95,6 +100,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Goal**: First multi-channel experiment - prove architecture generalizes beyond GoL.
 
 **What was built**:
+
 - Checkerboard pattern generation (2×2 squares, 16×16 grid)
 - Multi-channel loss (channel 0 only, others are working memory)
 - Full model: 3040 gates (16 kernels, 16-layer update)
@@ -102,6 +108,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 - Training binary with logging and checkpointing
 
 **Training results** (2026-01-09):
+
 - Epoch 512: First 100% hard accuracy
 - Epochs 512-637: Maintained 100% accuracy, hard_loss=0.0
 - Total time: ~35 minutes (2121 seconds)
@@ -110,6 +117,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Key files**: `src/checkerboard.rs`, `src/bin/train_checkerboard.rs`
 
 **Exit criteria met**:
+
 - ✅ Pattern emerges from random seed in 20 steps
 - ✅ Training converges to 100% accuracy
 - ✅ Soft and hard losses both converge
@@ -118,6 +126,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 - ⬜ Visual reconstruction GIF (Phase 2.1a)
 
 **Critical learnings**:
+
 - Loss must be channel-specific (channel 0 only for checkerboard)
 - Gradient scaling: raw sum, no averaging (scale=1.0)
 - 200-epoch plateau is expected (gates escaping pass-through initialization)
@@ -155,6 +164,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
    - Capture key insights for next phases
 
 **Exit criteria**:
+
 - ✅ Gate distribution analysis saved
 - ✅ Animated GIF generated
 - ✅ 64×64 generalization validated (>95% accuracy)
@@ -174,11 +184,13 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Goal**: Add asynchronous training with fire rate masking - demonstrate self-healing.
 
 **What to build**:
+
 - Fire rate masking (fire_rate=0.6)
 - Fault tolerance visualization
 - Damage recovery tests
 
 **Exit criteria**:
+
 - Pattern emerges with async updates
 - Model recovers from random damage
 - Self-healing demonstrated visually
@@ -192,11 +204,13 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Goal**: Test highest channel count with complex morphogenesis pattern.
 
 **What to build**:
+
 - Lizard pattern generation
 - Growth simulation (12 steps)
 - Fewer kernels (4 vs 16) to match reference
 
 **Exit criteria**:
+
 - Lizard pattern grows from seed
 - Generalizes to 40×40 (trained on 20×20)
 - Visual confirmation of growth stages
@@ -214,12 +228,14 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 **Rationale**: Colored G (Phase 2.4) needs proper 8-color visualization. Python's matplotlib is far superior to Rust for this. By this point, core architecture is stable and we know what API we need.
 
 **What to build**:
+
 - `logicars-py` crate with PyO3 bindings
 - Core API: create model, train, step, save/load
 - NumPy array integration for grids
 - Basic examples and tests
 
 **API scope**:
+
 ```python
 import logicars
 
@@ -239,6 +255,7 @@ print(model.gate_distribution())
 ```
 
 **Exit criteria**:
+
 - ✅ Core training loop works from Python
 - ✅ Grid I/O via NumPy arrays
 - ✅ Model save/load works
@@ -256,6 +273,7 @@ print(model.gate_distribution())
 **Goal**: Most complex pattern - 8-color palette visualization.
 
 **What to build**:
+
 - Colored G pattern (8 colors, C=64)
 - 927 active gates (reference metric)
 - 15 generation steps
@@ -263,6 +281,7 @@ print(model.gate_distribution())
 **Development environment**: Python (Jupyter notebooks preferred)
 
 **Exit criteria**:
+
 - Colored G pattern generated
 - 8-color palette clearly visible
 - Gate count matches reference (~927 active)
@@ -276,6 +295,7 @@ print(model.gate_distribution())
 **Status**: Partially complete
 
 **Completed** (3.2):
+
 - ✅ `HardCircuit::from_soft()` - export trained models
 - ✅ `circuit.save(path)` / `HardCircuit::load(path)` - JSON serialization
 - ✅ `circuit.active_gate_count()` - count non-pass-through gates
@@ -283,6 +303,7 @@ print(model.gate_distribution())
 - ✅ Comprehensive test suite (148 tests)
 
 **Remaining** (3.3):
+
 - ⬜ Tutorial: "Train your first CA"
 - ⬜ Benchmark suite vs reference implementation
 - ⬜ API documentation (rustdoc)
@@ -294,6 +315,7 @@ print(model.gate_distribution())
 **Status**: Partially complete
 
 **Completed optimizations**:
+
 - ✅ Phase 1: Release profile tuning (LTO, codegen-units=1)
 - ✅ Phase 2: Parallel backward pass (rayon)
 - ✅ Phase 3: Batch parallelization (rayon)
@@ -302,6 +324,7 @@ print(model.gate_distribution())
 **Speedup achieved**: ~10-15x faster than initial implementation
 
 **Remaining optimizations**:
+
 - ⬜ Phase 4: f32 precision (documented, not implemented)
 - ⬜ SIMD gate operations (future work)
 - ⬜ Memory pooling (future work)
@@ -315,24 +338,29 @@ print(model.gate_distribution())
 **Planned components**:
 
 **5.1: Production PyO3 API**
+
 - Refine Phase 2.5 bindings into production API
 - Advanced features, full documentation
 - PyPI package
 
 **5.2: extendr R Bindings**
+
 - R package using extendr framework
 - Same core API as Python
 - CRAN package
 
 **5.3: Visualization Tools**
+
 - Standalone visualization utilities
 - Interactive demos
 
 **5.4: WASM Demo**
+
 - Browser-based CA visualization
 - WebGL rendering
 
 **5.5: GPU Acceleration**
+
 - Deferred until CPU performance is sufficient
 - Consider Burn framework (autodiff + fusion)
 - See `reference/burn-evaluation.md` for analysis
@@ -346,6 +374,7 @@ print(model.gate_distribution())
 **Goal**: Reorganize documentation for better LLM token efficiency.
 
 **Tasks**:
+
 1. Create `plans/` folder
 2. Move 14 planning documents from `reference/` to `plans/`
    - 5 GPU plans (gpu-*.md)
@@ -357,6 +386,7 @@ print(model.gate_distribution())
 5. Keep in `reference/`: notebook, Python script, visualizations
 
 **Exit criteria**:
+
 - ✅ All planning docs in `plans/` folder
 - ✅ `plans/INDEX.md` exists
 - ✅ `AGENTS.md` updated
@@ -400,6 +430,7 @@ See Phase 2.1a section above.
    - Remove outdated information
 
 **Exit criteria**:
+
 - ✅ No `phase_*.rs` files (except renamed `gates.rs`)
 - ✅ <10 binaries in `src/bin/`
 - ✅ All 148+ tests pass
@@ -476,17 +507,20 @@ See Phase 2.1a section above.
 
 ## Risk Mitigation
 
-### Before starting any phase:
+### Before starting any phase
+
 - Create git branch
 - Ensure all tests pass on main
 - Commit any unsaved training results
 
-### During implementation:
+### During implementation
+
 - Run tests frequently: `cargo test --lib`
 - Keep commits small and atomic
 - Can always revert if needed
 
-### Before marking phase complete:
+### Before marking phase complete
+
 - All exit criteria met
 - All tests pass
 - Documentation updated
@@ -496,7 +530,7 @@ See Phase 2.1a section above.
 
 ## Long-Running Tasks Protocol
 
-For training runs that take >30 minutes:
+For training runs > 10 epochs:
 
 1. **Don't run yourself** - provide command to human
 2. **Complete other work first** - maximize independence
@@ -504,6 +538,7 @@ For training runs that take >30 minutes:
 4. **Wait for feedback** - adjust based on results
 
 Example:
+
 ```bash
 # Training will take ~30 minutes
 cargo run --bin train_checkerboard --release
