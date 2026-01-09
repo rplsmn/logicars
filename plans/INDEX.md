@@ -54,6 +54,16 @@ Model serialization and export (Phase 3.2 complete - JSON save/load works).
 
 ---
 
+## Phase Implementation Plans
+
+Detailed task breakdowns for specific phases.
+
+| File | Status | Description |
+|------|--------|-------------|
+| `phase-2.1a-analysis.md` | 🚧 Active | Checkerboard analysis, GIF generation, generalization testing |
+
+---
+
 ## Other Technical Documents
 
 | File | Description |
