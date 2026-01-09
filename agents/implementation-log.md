@@ -33,6 +33,7 @@
 **See full details**: `agents/plan.md` → "Active Phase" → "Phase 2.1a"
 
 **What you'll do**:
+
 1. Create detailed implementation plan in `plans/phase-2.1a-analysis.md`
 2. Add model saving to training binary (not implemented yet)
 3. Load trained model, convert to HardCircuit, analyze gates
@@ -47,6 +48,7 @@
 ## ⚠️ Boundaries & Reminders
 
 ### What NOT to Do
+
 - ❌ Re-run training (already succeeded, takes ~35 min)
 - ❌ Re-read completed phase plans unless debugging specific feature
 - ❌ Implement performance optimizations (Phases 1,2,3,5 done)
@@ -54,6 +56,7 @@
 - ❌ Commit to main (always branch → PR → review → merge)
 
 ### Where to Find Things
+
 - **Code navigation**: `agents/INDEX.md` (file:line references)
 - **Implementation plans**: `plans/INDEX.md` (performance, GPU, serialization)
 - **Hyperparameters & architectures**: `agents/plan.md` → "Key Technical Details"
@@ -61,6 +64,7 @@
 - **Reference implementation**: `reference/diffLogic_CA.ipynb` (ALWAYS TRUST THIS)
 
 ### Critical Learnings (Project-Specific)
+
 1. **β2=0.99** is critical (not 0.999) - escapes local minima
 2. **Gradient scale=1.0** (raw sum, no averaging) - matches reference
 3. **Loss channel matters** - Checkerboard: only channel 0, others are working memory
@@ -93,4 +97,4 @@
 
 ---
 
-**Next Step**: Create `plans/phase-2.1a-analysis.md` with detailed implementation plan, then execute.
+**Next Step**: Create `plans/phase-2.1a-analysis.md` with detailed implementation plan
