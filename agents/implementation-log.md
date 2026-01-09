@@ -3,8 +3,8 @@
 > Compact status log for LLM agents. Full development history archived in git commits.
 
 **Last Updated**: 2026-01-09
-**Current Focus**: Phase A - Quick Maintenance Wins
-**Next Phase**: Phase 2.1a - Checkerboard Analysis & Documentation
+**Current Focus**: Phase 2.1a - Checkerboard Analysis & Documentation
+**Next Phase**: Phase C - Deep Refactoring
 
 ---
 
@@ -29,6 +29,7 @@ This validates the N-bit architecture generalizes beyond GoL (C=1) to multi-chan
 | 0.x | Gate primitives, backprop | ✅ Complete | 2026-01-05 |
 | 1.x | N-bit architecture, GoL 99.41% | ✅ Complete | 2026-01-06 |
 | 2.1 | Checkerboard C=8 training | ✅ Complete | 2026-01-09 |
+| A | Documentation reorganization | ✅ Complete | 2026-01-09 |
 | Perf 1,2,3,5 | Release profile, rayon parallel, caching | ✅ Complete | 2026-01-08 |
 
 **Test Count**: 148 passing
@@ -36,55 +37,48 @@ This validates the N-bit architecture generalizes beyond GoL (C=1) to multi-chan
 
 ---
 
-## 📋 Current Task: Phase A (Quick Maintenance Wins)
+## 📋 Current Task: Phase 2.1a (Checkerboard Analysis & Documentation)
 
-**Goal**: Reorganize documentation for better LLM token efficiency.
-
-**See**: `agents/plan.md` → "Maintenance Plan (Current Sprint)" → "Phase A"
-
-### Tasks
-
-1. **Create `plans/` folder**
-2. **Move 14 planning documents** from `reference/` to `plans/`:
-   - 5 GPU plans: `gpu-*.md`
-   - 5 Performance plans: `perf-*.md`
-   - 3 Serialization plans: `serialisation-*.md`
-   - 1 Other: `gradient_clipping.md`
-3. **Create `plans/INDEX.md`** with categorized listing
-4. **Update `AGENTS.md`** with token-saving guidelines
-5. **Keep in `reference/`**: notebook, Python script, visualizations, burn-evaluation.md
-
-### Exit Criteria
-
-- ✅ All planning docs in `plans/` folder
-- ✅ `plans/INDEX.md` exists and is clear
-- ✅ `AGENTS.md` has token-saving section
-- ✅ `reference/` contains only reference materials (not planning docs)
-
-### What to Pay Attention To
-
-- **Don't move** the reference implementation files (`.ipynb`, `.py`)
-- **Don't move** visualization files (`.png`, `.svg`)
-- **Don't move** `reference/README.md` or `burn-evaluation.md`
-- **Do move** all `*-plan.md` and `*-phase*.md` files
-- Create a clear index so future LLMs know where to find things
-
----
-
-## 📖 After Phase A: What's Next
-
-### Phase B: Complete Phase 2.1a Analysis (8-10 hours)
-
-**Goal**: Scientific analysis of trained checkerboard model
+**Goal**: Complete scientific analysis and documentation of trained checkerboard model before moving to Phase 2.2.
 
 **See**: `agents/plan.md` → "Active Phase" → "Phase 2.1a"
 
-**Tasks**:
+**Prerequisites**: Phase A complete ✅ (PR #40)
 
-1. Gate distribution analysis (which gates were learned?)
-2. Visual reconstruction GIF (20-step rollout animation)
-3. Generalization test (64×64 grid, >95% accuracy)
-4. Documentation update
+### Tasks
+
+1. **Gate Distribution Analysis**
+   - Convert trained model to HardCircuit
+   - Count active vs pass-through gates
+   - Analyze which operations were learned
+   - Export analysis to text/CSV
+
+2. **Visual Reconstruction**
+   - Generate animated GIF of 20-step rollout
+   - Show pattern emergence from random seed
+   - Throwaway code in binary is fine
+
+3. **Generalization Testing**
+   - Test trained 16×16 model on 64×64 grid
+   - Success criteria: >95% accuracy
+   - May need more than 20 steps for larger grids
+
+4. **Documentation**
+   - Update implementation-log.md with results
+   - Mark Phase 2.1 as fully complete
+   - Capture key insights for next phases
+
+### Exit Criteria
+
+- ⬜ Gate distribution analysis saved
+- ⬜ Animated GIF generated
+- ⬜ 64×64 generalization validated (>95% accuracy)
+- ⬜ All results documented in implementation-log.md
+- ⬜ Phase 2.1 marked ✅ COMPLETE in plan.md
+
+---
+
+## 📖 After Phase 2.1a: What's Next
 
 ### Phase C: Deep Refactoring (4-6 hours)
 
@@ -222,15 +216,16 @@ cargo build --release               # Always use release for training
 ## ⚠️ Critical Notes for Next Agent
 
 1. **Read `agents/plan.md` FIRST** - It has the current phase details and exit criteria
-2. **Current task is Phase A** - Just documentation reorganization, no code changes
-3. **Training already succeeded** - Don't re-run training unless specifically needed for Phase 2.1a
+2. **Current task is Phase 2.1a** - Checkerboard analysis & documentation (gate distribution, GIF, generalization)
+3. **Training already succeeded** - Model saved in `checkerboard_sync_model.json`, don't re-run training
 4. **Use `agents/INDEX.md`** - File:line references save tokens vs grepping
-5. **Perf optimizations are DONE** - Phases 1,2,3,5 complete (rayon parallelization, caching)
-6. **Never commit to main** - Always create branch, open PR
-7. **Keep this log compact** - Full history is in git, this is just current state
+5. **Use `plans/INDEX.md`** - Find implementation plans without reading all files (NEW in Phase A)
+6. **Perf optimizations are DONE** - Phases 1,2,3,5 complete (rayon parallelization, caching)
+7. **Never commit to main** - Always create branch, open PR
+8. **Keep this log compact** - Full history is in git, this is just current state
 
 ---
 
-**Status**: ✅ Phase 2.1 complete, ready for Phase A maintenance
-**Branch**: Currently on `docs/plan-rewrite` (plan.md rewrite PR open)
-**Next**: Start Phase A tasks after plan.md PR is merged
+**Status**: ✅ Phase 2.1 complete, ✅ Phase A complete (PR #40), ready for Phase 2.1a
+**Branch**: Currently on `docs/phase-a-reorganization` (PR #40 open)
+**Next**: Start Phase 2.1a after Phase A PR is merged
