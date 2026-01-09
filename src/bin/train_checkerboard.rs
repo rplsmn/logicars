@@ -10,6 +10,8 @@
 //!   --epochs=N        Number of epochs to train (default: 500, 100 for small)
 //!   --log-interval=N  How often to log accuracy/loss (default: 50, 10 for small)
 //!   --noise[=SCALE]   Enable gradient noise (default scale: 0.001)
+//!   --log=FILE        Write training log to file (append mode)
+//!   --full            Run without epoch limit (until interrupted)
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
@@ -18,6 +20,8 @@ use logicars::{
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
 };
+use std::fs::{File, OpenOptions};
+use std::io::{Write, BufWriter};
 use std::time::Instant;
 
 fn main() {
@@ -72,6 +76,16 @@ fn main() {
                 .unwrap_or(0.001) // Default noise scale from gpu-plan.md §4.2
         });
 
+    // Parse --log=FILE for logging to file
+    let log_file: Option<String> = args
+        .iter()
+        .find(|a| a.starts_with("--log="))
+        .and_then(|a| a.strip_prefix("--log="))
+        .map(|s| s.to_string());
+
+    // Parse --full for unlimited epochs
+    let unlimited_epochs = args.iter().any(|a| a == "--full");
+
     // Create model
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
@@ -98,7 +112,11 @@ fn main() {
     println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
     println!("  Steps per epoch: {}", config.num_steps);
-    println!("  Epochs: {}", epochs);
+    if unlimited_epochs {
+        println!("  Epochs: unlimited (--full mode, Ctrl+C to stop)");
+    } else {
+        println!("  Epochs: {}", epochs);
+    }
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
     println!("  Batch size: {}", batch_size);
@@ -106,6 +124,9 @@ fn main() {
         println!("  Gradient noise: {} (enabled)", noise);
     } else {
         println!("  Gradient noise: disabled");
+    }
+    if let Some(ref log_path) = log_file {
+        println!("  Log file: {}", log_path);
     }
     println!();
 
@@ -128,9 +149,34 @@ fn main() {
     let start = Instant::now();
     let mut rng = SimpleRng::new(23); // Match reference seed
 
+    // Open log file if specified (append mode for resuming)
+    let mut log_writer: Option<BufWriter<File>> = log_file.as_ref().map(|path| {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect(&format!("Failed to open log file: {}", path));
+        BufWriter::new(file)
+    });
+
+    // Write header to log file if new
+    if let Some(ref mut writer) = log_writer {
+        writeln!(writer, "# Checkerboard Training Log").unwrap();
+        writeln!(writer, "# Started: {:?}", std::time::SystemTime::now()).unwrap();
+        writeln!(writer, "# Model: {} gates", training_loop.model.total_gates()).unwrap();
+        writeln!(writer, "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s").unwrap();
+        writer.flush().unwrap();
+    }
+
     println!("Training...\n");
 
-    for epoch in 0..epochs {
+    let mut epoch = 0usize;
+    loop {
+        // Check epoch limit unless in unlimited mode
+        if !unlimited_epochs && epoch >= epochs {
+            break;
+        }
+
         // Create batch of random seeds for this epoch
         let inputs: Vec<_> = (0..batch_size)
             .map(|_| create_random_seed(
@@ -144,7 +190,8 @@ fn main() {
         let (soft_loss, hard_loss) = training_loop.train_step_batch(&inputs, &target);
 
         // Evaluate periodically
-        if epoch % eval_interval == 0 || epoch == epochs - 1 {
+        let is_last = !unlimited_epochs && epoch == epochs - 1;
+        if epoch % eval_interval == 0 || is_last {
             // Run hard evaluation
             let test_input = create_random_seed(
                 CHECKERBOARD_GRID_SIZE,
@@ -159,11 +206,22 @@ fn main() {
             }
 
             let elapsed = start.elapsed().as_secs_f32();
+            
+            // Print to stdout
             println!(
                 "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s]",
                 epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
             );
+
+            // Write to log file
+            if let Some(ref mut writer) = log_writer {
+                writeln!(writer, "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
+                         epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed).unwrap();
+                writer.flush().unwrap();
+            }
         }
+
+        epoch += 1;
     }
 
     // Final evaluation
