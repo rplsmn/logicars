@@ -50,6 +50,7 @@ lto = "fat"           # Full link-time optimization across all crates
 codegen-units = 1     # Better optimization (single codegen unit)
 panic = "abort"       # No unwinding overhead, smaller binary
 opt-level = 3         # Maximum optimization level
+debug = true          # Enable debug symbols for profiling (flamegraph)
 
 [profile.release.build-override]
 opt-level = 3         # Optimize build scripts too
