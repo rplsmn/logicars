@@ -8,8 +8,14 @@
 2. **`agents/plan.md`** - Full development roadmap and phase requirements
 3. **`agents/implementation-log.md`** - Implementation state, learnings, and what's next
 4. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers
+5. **`plans/INDEX.md`** - Implementation plans (performance, GPU, serialization) - read only when working on specific subsystems
 
-**Token-saving tip**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
+**Token-saving tips**:
+
+- **Code navigation**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
+- **Planning documents**: Use `plans/INDEX.md` to find implementation plans (performance, GPU, serialization). Only read full plan documents when working on that specific subsystem.
+- **Completed work**: Don't re-read completed phase plans unless debugging. Check `agents/plan.md` for phase status (✅/🚧/⬜).
+- **Current focus**: Always read `agents/implementation-log.md` first - it has the current task and next steps in <150 lines.
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
@@ -127,18 +133,78 @@ This project implements differentiable logic gates for learning cellular automat
 
 See `agents/implementation-log.md` for detailed progress. The project follows a phased approach from single gates to full CA training.
 
-## Development Workflow
+## LLM Agent Workflow
+
+**Critical**: These documents go in EVERY context window. Keep them compact, clear, and unambiguous.
+
+### The Development Loop
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. READ DOCS                                            │
+│    └─ AGENTS.md → plan.md → implementation-log.md      │
+├─────────────────────────────────────────────────────────┤
+│ 2. CREATE PHASE PLAN                                    │
+│    └─ plans/phase-X.X-name.md (detailed tasks, tests)  │
+├─────────────────────────────────────────────────────────┤
+│ 3. IMPLEMENT                                            │
+│    └─ TDD: tests first → code → verify exit criteria   │
+├─────────────────────────────────────────────────────────┤
+│ 4. PUSH PR                                              │
+│    └─ Branch → PR → wait for human review              │
+├─────────────────────────────────────────────────────────┤
+│ 5. UPDATE DOCS (after human approval)                  │
+│    ├─ Update implementation-log.md (keep <100 lines)   │
+│    ├─ Mark phase complete in plan.md                   │
+│    └─ Merge PR                                          │
+└─────────────────────────────────────────────────────────┘
+        │                                        │
+        └────────── Loop back to step 1 ────────┘
+```
+
+### Document Maintenance Rules
+
+**`agents/plan.md`** (Can be longer, ~500 lines):
+
+- Full roadmap, all phases, exit criteria
+- Update when: phase completes, requirements change, major architectural shift
+- Mark phases with ✅/🚧/⬜ status
+- Keep technical details (hyperparameters, architectures)
+
+**`agents/implementation-log.md`** (MUST stay <100 lines):
+
+- **Purpose**: Prime LLM on current state and boundaries only
+- **NOT a detailed plan** - that goes in `plans/phase-X.X-name.md`
+- Update when: phase completes, boundaries change
+- Remove: completed phase details (keep only status table)
+- Keep: current phase pointer, boundaries (what NOT to do), critical learnings
+
+**After each phase completion**:
+
+1. Update implementation-log.md: mark phase done, update current phase, check line count
+2. Update plan.md: mark phase ✅, update status table if needed
+3. Archive detailed work in git commits (don't bloat the log)
+
+### Quick Development Steps
 
 1. Read phase requirements from `agents/plan.md`
-2. Create TodoWrite list with specific tasks
-3. Write unit tests for core functionality first
-4. Implement core logic
-5. Run `cargo test --lib` continuously
-6. Create integration test binary if needed
-7. Verify all exit criteria met
-8. Update and compact `agents/implementation-log.md` to keep it current but 100-150 lines maximum
-9. Commit with detailed message, never to main.
-10. Push changes and create PR when successful at a step (exit / success criteria validated).
+
+IF `plans/phase-X.X-name.md` for the current phase DOESN'T EXIST
+
+1. Create detailed implementation plan in `plans/phase-X.X-name.md`
+2. Commit with detailed message to plan/ branch (never to main)
+3. Push branch and create PR
+4. After human approval: update docs (keep log <100 lines), merge PR
+
+IF `plans/phase-X.X-name.md` for the current phase ALREADY EXISTS (committed recently)
+
+1. Create TodoWrite list with specific tasks
+2. Write unit tests for core functionality first
+3. Implement core logic, run `cargo test --lib` continuously
+4. Verify all exit criteria met
+5. Commit with detailed message (never to main)
+6. Push branch and create PR
+7. After human approval: update docs (keep log <100 lines), merge PR
 
 ### Long-Running Tasks
 
