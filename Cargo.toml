@@ -3,10 +3,10 @@ name = "logicars"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "logicars"
-crate-type = ["cdylib", "rlib"]
+# cdylib is only needed for Python bindings - uncomment when implementing Phase 5.1
+# crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "train_gate"
@@ -25,17 +25,23 @@ name = "train_perception"
 path = "src/bin/train_perception.rs"
 
 [dependencies]
-pyo3 = { version = "0.23.3", optional = true }
+# Core dependencies
 rand = "0.9"
-ndarray = "0.16.1"
-numpy = { version = "0.23.0", optional = true }
 rayon = "1.7.0"
+ndarray = "0.16.1"
+parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 image = "0.24"
+bytemuck = { version = "1.18", features = ["derive"] }
+
+# Optional: Python bindings (Phase 5.1 - not yet implemented)
+pyo3 = { version = "0.23.3", optional = true }
+numpy = { version = "0.23.0", optional = true }
+
+# Optional: GPU acceleration (Phase 4.5 - deferred)
 wgpu = { version = "24.0", optional = true }
 pollster = { version = "0.4", optional = true }
-bytemuck = { version = "1.18", features = ["derive"] }
 
 [dev-dependencies]
 approx = "0.5"
@@ -46,11 +52,11 @@ python = ["pyo3", "numpy"]
 gpu = ["dep:wgpu", "dep:pollster"]
 
 [profile.release]
-lto = "fat"           # Full link-time optimization across all crates
-codegen-units = 1     # Better optimization (single codegen unit)
-panic = "abort"       # No unwinding overhead, smaller binary
-opt-level = 3         # Maximum optimization level
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
 debug = true          # Enable debug symbols for profiling (flamegraph)
 
 [profile.release.build-override]
-opt-level = 3         # Optimize build scripts too
+opt-level = 3

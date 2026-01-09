@@ -2,9 +2,9 @@
 
 > Compact log for LLM agents. Full history: `agents/archive/`
 
-## Current State (2026-01-08)
+## Current State (2026-01-09)
 
-**Phase 2.1 🚧 IN PROGRESS** | GPU evaluation complete, focus on CPU training
+**Phase 2.1 🚧 IN PROGRESS** | Perf Phase 5 (softmax caching) implemented
 
 ### What's Done
 
@@ -13,6 +13,20 @@
 - Phase 1.5: GoL 99.41% accuracy, blinker/glider work
 - Phase 2.1: Checkerboard infrastructure built, batch training added
 - **GPU Phase 1-2**: wgpu forward pass implemented (archived - see below)
+- **Perf Phase 1**: Release profile optimization (lto, codegen-units)
+- **Perf Phase 5**: Softmax probability caching with `parking_lot::RwLock`
+
+### Performance Optimization Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Release profile tuning | ✅ Done |
+| 2 | Parallelize backward pass | ⬜ Not started |
+| 3 | Batch parallelization | ⬜ Not started |
+| 4 | f32 precision | ⬜ Documented |
+| 5 | Softmax caching | ✅ Done |
+
+**Softmax Caching (Phase 5)**: Probabilities cached in `ProbabilisticGate` using thread-safe `RwLock`. Cache automatically invalidated after optimizer updates logits. Added `invalidate_cache()` method for explicit invalidation.
 
 ### GPU Work Status (ARCHIVED)
 

@@ -896,6 +896,8 @@ impl PerceptionTrainer {
                         &mut self.module.kernels[k].layers[layer_idx].gates[gate_idx].logits,
                         &clipped,
                     );
+                    // Invalidate cached probabilities after logit update
+                    self.module.kernels[k].layers[layer_idx].gates[gate_idx].invalidate_cache();
                 }
             }
         }
@@ -1206,10 +1208,12 @@ mod tests {
         let original = module_copy.kernels[0].layers[0].gates[0].logits[0];
 
         module_copy.kernels[0].layers[0].gates[0].logits[0] = original + epsilon;
+        module_copy.kernels[0].layers[0].gates[0].invalidate_cache();
         let (out_plus, _) = module_copy.forward_soft(&neighborhood);
         let loss_plus = (out_plus[1] - target).powi(2);
 
         module_copy.kernels[0].layers[0].gates[0].logits[0] = original - epsilon;
+        module_copy.kernels[0].layers[0].gates[0].invalidate_cache();
         let (out_minus, _) = module_copy.forward_soft(&neighborhood);
         let loss_minus = (out_minus[1] - target).powi(2);
 

@@ -581,6 +581,7 @@ dependencies = [
  "image",
  "ndarray",
  "numpy",
+ "parking_lot",
  "pollster",
  "pyo3",
  "rand",

@@ -92,6 +92,8 @@ impl GateTrainer {
 
         // Update parameters
         self.optimizer.step(&mut self.gate.logits, &total_gradients);
+        // Invalidate cached probabilities after logit update
+        self.gate.invalidate_cache();
         self.iteration += 1;
 
         // Return current loss
