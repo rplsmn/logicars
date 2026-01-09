@@ -217,7 +217,7 @@ cargo build --release               # Always use release for training
 
 1. **Read `agents/plan.md` FIRST** - It has the current phase details and exit criteria
 2. **Current task is Phase 2.1a** - Checkerboard analysis & documentation (gate distribution, GIF, generalization)
-3. **Training already succeeded** - Model saved in `checkerboard_sync_model.json`, don't re-run training
+3. **Training already succeeded** - Results in `checkerboard_sync_log.csv` (100% accuracy at epoch 512). Model not saved yet - Phase 2.1a will need to add model saving to training binary.
 4. **Use `agents/INDEX.md`** - File:line references save tokens vs grepping
 5. **Use `plans/INDEX.md`** - Find implementation plans without reading all files (NEW in Phase A)
 6. **Perf optimizations are DONE** - Phases 1,2,3,5 complete (rayon parallelization, caching)
