@@ -663,6 +663,8 @@ impl DeepPerceptionTrainer {
                     accumulated_grads[gate_idx][j] /= 512.0;
                 }
                 self.optimizers[gate_idx].step(&mut gate.logits, &accumulated_grads[gate_idx]);
+                // Invalidate cached probabilities after logit update
+                gate.invalidate_cache();
                 gate_idx += 1;
             }
         }
@@ -953,6 +955,8 @@ impl PerceptionTrainer {
                 &mut self.kernel.gate_mut(gate_idx).logits,
                 &accumulated_grads[gate_idx],
             );
+            // Invalidate cached probabilities after logit update
+            self.kernel.gate_mut(gate_idx).invalidate_cache();
         }
 
         self.iteration += 1;
@@ -1357,16 +1361,19 @@ mod tests {
 
                 // +epsilon
                 trainer.kernel.gate_mut(0).logits[logit_idx] = original + epsilon;
+                trainer.kernel.gate_mut(0).invalidate_cache();
                 let out_plus = trainer.kernel.execute_soft(&soft_input);
                 let loss_plus = (out_plus - target_f).powi(2);
 
                 // -epsilon
                 trainer.kernel.gate_mut(0).logits[logit_idx] = original - epsilon;
+                trainer.kernel.gate_mut(0).invalidate_cache();
                 let out_minus = trainer.kernel.execute_soft(&soft_input);
                 let loss_minus = (out_minus - target_f).powi(2);
 
                 // Restore
                 trainer.kernel.gate_mut(0).logits[logit_idx] = original;
+                trainer.kernel.gate_mut(0).invalidate_cache();
 
                 let numerical = (loss_plus - loss_minus) / (2.0 * epsilon);
 

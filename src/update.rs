@@ -526,6 +526,9 @@ impl DiffLogicCATrainer {
                             .logits,
                         &clipped,
                     );
+                    // Invalidate cached probabilities after logit update
+                    self.model.perception.kernels[k].layers[layer_idx].gates[gate_idx]
+                        .invalidate_cache();
                 }
             }
         }
@@ -544,6 +547,8 @@ impl DiffLogicCATrainer {
                     &mut self.model.update.layers[layer_idx].gates[gate_idx].logits,
                     &clipped,
                 );
+                // Invalidate cached probabilities after logit update
+                self.model.update.layers[layer_idx].gates[gate_idx].invalidate_cache();
             }
         }
     }
@@ -616,6 +621,8 @@ impl UpdateTrainer {
                     &mut self.module.layers[layer_idx].gates[gate_idx].logits,
                     &clipped,
                 );
+                // Invalidate cached probabilities after logit update
+                self.module.layers[layer_idx].gates[gate_idx].invalidate_cache();
             }
         }
 
@@ -732,10 +739,12 @@ mod tests {
         let original = module_copy.layers[0].gates[0].logits[0];
 
         module_copy.layers[0].gates[0].logits[0] = original + epsilon;
+        module_copy.layers[0].gates[0].invalidate_cache();
         let act_plus = module_copy.forward_soft(&inputs);
         let loss_plus = (act_plus.last().unwrap()[0] - target).powi(2);
 
         module_copy.layers[0].gates[0].logits[0] = original - epsilon;
+        module_copy.layers[0].gates[0].invalidate_cache();
         let act_minus = module_copy.forward_soft(&inputs);
         let loss_minus = (act_minus.last().unwrap()[0] - target).powi(2);
 

@@ -486,6 +486,8 @@ impl CircuitTrainer {
                     &mut self.circuit.layers[layer_idx][gate_idx].logits,
                     &all_gradients[layer_idx][gate_idx],
                 );
+                // Invalidate cached probabilities after logit update
+                self.circuit.layers[layer_idx][gate_idx].invalidate_cache();
             }
         }
 
@@ -756,6 +758,7 @@ mod tests {
 
             // +epsilon
             circuit.gate_mut(0, 0).logits[logit_idx] = original + epsilon;
+            circuit.gate_mut(0, 0).invalidate_cache();
             let outputs_plus = circuit.output_soft(&inputs);
             let loss_plus: f64 = outputs_plus.iter()
                 .zip(targets.iter())
@@ -764,6 +767,7 @@ mod tests {
 
             // -epsilon
             circuit.gate_mut(0, 0).logits[logit_idx] = original - epsilon;
+            circuit.gate_mut(0, 0).invalidate_cache();
             let outputs_minus = circuit.output_soft(&inputs);
             let loss_minus: f64 = outputs_minus.iter()
                 .zip(targets.iter())
@@ -772,6 +776,7 @@ mod tests {
 
             // Restore
             circuit.gate_mut(0, 0).logits[logit_idx] = original;
+            circuit.gate_mut(0, 0).invalidate_cache();
 
             let numerical_grad = (loss_plus - loss_minus) / (2.0 * epsilon);
 
@@ -789,6 +794,7 @@ mod tests {
 
             // +epsilon
             circuit.gate_mut(1, 0).logits[logit_idx] = original + epsilon;
+            circuit.gate_mut(1, 0).invalidate_cache();
             let outputs_plus = circuit.output_soft(&inputs);
             let loss_plus: f64 = outputs_plus.iter()
                 .zip(targets.iter())
@@ -797,6 +803,7 @@ mod tests {
 
             // -epsilon
             circuit.gate_mut(1, 0).logits[logit_idx] = original - epsilon;
+            circuit.gate_mut(1, 0).invalidate_cache();
             let outputs_minus = circuit.output_soft(&inputs);
             let loss_minus: f64 = outputs_minus.iter()
                 .zip(targets.iter())
@@ -805,6 +812,7 @@ mod tests {
 
             // Restore
             circuit.gate_mut(1, 0).logits[logit_idx] = original;
+            circuit.gate_mut(1, 0).invalidate_cache();
 
             let numerical_grad = (loss_plus - loss_minus) / (2.0 * epsilon);
 

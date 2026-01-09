@@ -881,6 +881,9 @@ impl TrainingLoop {
                             .logits,
                         &scaled,
                     );
+                    // Invalidate cached probabilities after logit update
+                    self.model.perception.kernels[kernel_idx].layers[layer_idx].gates[gate_idx]
+                        .invalidate_cache();
 
                     if !sample_taken {
                         weight_after_sample = self.model.perception.kernels[kernel_idx].layers[layer_idx].gates[gate_idx].logits[0];
@@ -910,6 +913,8 @@ impl TrainingLoop {
                     &mut self.model.update.layers[layer_idx].gates[gate_idx].logits,
                     &scaled,
                 );
+                // Invalidate cached probabilities after logit update
+                self.model.update.layers[layer_idx].gates[gate_idx].invalidate_cache();
             }
         }
 

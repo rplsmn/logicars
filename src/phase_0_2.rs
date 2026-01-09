@@ -258,6 +258,8 @@ impl LayerTrainer {
                 &mut self.layer.gates[gate_idx].logits,
                 &total_gradients[gate_idx],
             );
+            // Invalidate cached probabilities after logit update
+            self.layer.gates[gate_idx].invalidate_cache();
         }
 
         self.iteration += 1;

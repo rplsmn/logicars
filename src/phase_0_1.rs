@@ -3,6 +3,7 @@
 //! Implements one probabilistic logic gate with 16 binary operations.
 //! Train to learn AND, OR, XOR individually with >99% accuracy.
 
+use parking_lot::RwLock;
 use rand::Rng;
 
 /// The 16 possible binary operations on two boolean inputs
@@ -91,11 +92,30 @@ impl BinaryOp {
 }
 
 /// A probabilistic gate that maintains a distribution over all 16 binary operations
-#[derive(Debug, Clone)]
 pub struct ProbabilisticGate {
     /// Logits for each of the 16 operations (unnormalized log probabilities)
     /// Index 3 (pass-through) should be initialized to 10.0 for stability
     pub logits: [f64; 16],
+    /// Cached softmax probabilities (computed lazily, invalidated when logits change)
+    cached_probs: RwLock<Option<[f64; 16]>>,
+}
+
+impl std::fmt::Debug for ProbabilisticGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProbabilisticGate")
+            .field("logits", &self.logits)
+            .finish()
+    }
+}
+
+impl Clone for ProbabilisticGate {
+    fn clone(&self) -> Self {
+        Self {
+            logits: self.logits,
+            // Clone cached probs if present
+            cached_probs: RwLock::new(*self.cached_probs.read()),
+        }
+    }
 }
 
 impl ProbabilisticGate {
@@ -106,7 +126,10 @@ impl ProbabilisticGate {
         // Reference uses 10.0 and it works with JAX autodiff
         // The high value keeps softmax saturated, preserving input variance early in training
         logits[3] = 10.0;
-        Self { logits }
+        Self { 
+            logits,
+            cached_probs: RwLock::new(None),
+        }
     }
 
     /// Create a gate with random initialization
@@ -117,11 +140,36 @@ impl ProbabilisticGate {
         }
         // Bias towards pass-through (index 3) for stability
         logits[3] += 5.0;
-        Self { logits }
+        Self { 
+            logits,
+            cached_probs: RwLock::new(None),
+        }
     }
 
-    /// Compute softmax probabilities from logits
+    /// Invalidate the cached probabilities (call after modifying logits)
+    #[inline]
+    pub fn invalidate_cache(&self) {
+        *self.cached_probs.write() = None;
+    }
+
+    /// Compute softmax probabilities from logits (cached)
     pub fn probabilities(&self) -> [f64; 16] {
+        // Fast path: check cache with read lock
+        {
+            let cache = self.cached_probs.read();
+            if let Some(probs) = *cache {
+                return probs;
+            }
+        }
+
+        // Slow path: compute and cache with write lock
+        let probs = self.compute_probabilities();
+        *self.cached_probs.write() = Some(probs);
+        probs
+    }
+
+    /// Internal: compute softmax without caching
+    fn compute_probabilities(&self) -> [f64; 16] {
         // Numerically stable softmax
         let max_logit = self.logits.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let mut exp_sum = 0.0;
@@ -326,16 +374,19 @@ mod tests {
 
                 // Compute loss with logit + epsilon
                 gate.logits[i] = original + epsilon;
+                gate.invalidate_cache();
                 let output_plus = gate.execute_soft(a, b);
                 let loss_plus = (output_plus - target).powi(2);
 
                 // Compute loss with logit - epsilon
                 gate.logits[i] = original - epsilon;
+                gate.invalidate_cache();
                 let output_minus = gate.execute_soft(a, b);
                 let loss_minus = (output_minus - target).powi(2);
 
                 // Restore original logit
                 gate.logits[i] = original;
+                gate.invalidate_cache();
 
                 // Numerical gradient
                 let numerical_grad = (loss_plus - loss_minus) / (2.0 * epsilon);
@@ -349,5 +400,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_cached_probabilities_correctness() {
+        let gate = ProbabilisticGate::new();
+
+        // First call - computes and caches
+        let probs1 = gate.probabilities();
+
+        // Second call - should return cached (identical values)
+        let probs2 = gate.probabilities();
+
+        for i in 0..16 {
+            assert_eq!(probs1[i], probs2[i], "Cached values should be identical");
+        }
+
+        // Verify correctness against direct computation
+        let expected = gate.compute_probabilities();
+        for i in 0..16 {
+            assert!(
+                (probs1[i] - expected[i]).abs() < 1e-15,
+                "Cached prob {} differs from computed: {} vs {}",
+                i,
+                probs1[i],
+                expected[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_invalidation() {
+        let mut gate = ProbabilisticGate::new();
+
+        let probs_before = gate.probabilities();
+        // Initially logits[3] = 10.0 (pass-through), so prob[3] ≈ 0.9999
+
+        // Modify the dominant logit to change probabilities significantly
+        gate.logits[3] = 0.0;  // Remove pass-through bias
+        gate.logits[1] = 10.0; // Make AND dominant instead
+        gate.invalidate_cache();
+
+        let probs_after = gate.probabilities();
+
+        // Should be different - prob[3] should drop from ~0.9999 to ~0.0
+        assert!(
+            (probs_before[3] - probs_after[3]).abs() > 0.5,
+            "Probabilities should change after logit modification: before[3]={}, after[3]={}",
+            probs_before[3],
+            probs_after[3]
+        );
+    }
+
+    #[test]
+    fn test_gate_clone_with_cache() {
+        let gate1 = ProbabilisticGate::new();
+        let _ = gate1.probabilities(); // Populate cache
+
+        let mut gate2 = gate1.clone();
+
+        // Both should return same probabilities
+        assert_eq!(gate1.probabilities(), gate2.probabilities());
+
+        // Modifying gate2 shouldn't affect gate1
+        gate2.logits[0] = 5.0;
+        gate2.invalidate_cache();
+
+        assert_ne!(
+            gate1.probabilities()[0],
+            gate2.probabilities()[0],
+            "Cloned gates should be independent"
+        );
     }
 }

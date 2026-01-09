@@ -94,17 +94,14 @@ pub use circuit::{
     HardCircuit,
 };
 
-// Old modules (from failed attempt - kept for reference)
-#[cfg(feature = "python")]
-mod python_bindings;
-
+// Python bindings (Phase 5.1 - not yet implemented)
+// When implementing, create src/python_bindings.rs and uncomment cdylib in Cargo.toml
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-// The PyO3 module definition (only when python feature is enabled)
 #[cfg(feature = "python")]
 #[pymodule]
 fn logicars(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // TODO: Add Python bindings for Phase 0.1 once it's working
+    // TODO: Add Python bindings when Phase 5.1 is implemented
     Ok(())
 }
