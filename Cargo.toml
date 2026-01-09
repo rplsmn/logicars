@@ -44,3 +44,12 @@ approx = "0.5"
 default = []
 python = ["pyo3", "numpy"]
 gpu = ["dep:wgpu", "dep:pollster"]
+
+[profile.release]
+lto = "fat"           # Full link-time optimization across all crates
+codegen-units = 1     # Better optimization (single codegen unit)
+panic = "abort"       # No unwinding overhead, smaller binary
+opt-level = 3         # Maximum optimization level
+
+[profile.release.build-override]
+opt-level = 3         # Optimize build scripts too

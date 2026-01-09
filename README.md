@@ -12,6 +12,22 @@ cargo build --release
 cargo test --lib
 ```
 
+### Optimized Build
+
+For maximum performance on your specific CPU, use native CPU features:
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
+
+This enables AVX2/AVX-512 vectorization if your CPU supports it.
+
+To make this permanent for local development, create `.cargo/config.toml`:
+```toml
+[build]
+rustflags = ["-C", "target-cpu=native"]
+```
+
 ## Training Experiments
 
 ### Game of Life (C=1)
