@@ -8,8 +8,13 @@
 2. **`agents/plan.md`** - Full development roadmap and phase requirements
 3. **`agents/implementation-log.md`** - Implementation state, learnings, and what's next
 4. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers
+5. **`plans/INDEX.md`** - Implementation plans (performance, GPU, serialization) - read only when working on specific subsystems
 
-**Token-saving tip**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
+**Token-saving tips**:
+- **Code navigation**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
+- **Planning documents**: Use `plans/INDEX.md` to find implementation plans (performance, GPU, serialization). Only read full plan documents when working on that specific subsystem.
+- **Completed work**: Don't re-read completed phase plans unless debugging. Check `agents/plan.md` for phase status (✅/🚧/⬜).
+- **Current focus**: Always read `agents/implementation-log.md` first - it has the current task and next steps in <150 lines.
 
 This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
 
