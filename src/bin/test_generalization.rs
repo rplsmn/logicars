@@ -6,8 +6,7 @@
 //! Tests the model on 16×16 (training size), 32×32, 64×64, and 128×128 grids.
 
 use logicars::{
-    create_checkerboard, create_random_seed, compute_checkerboard_accuracy,
-    HardCircuit, SimpleRng,
+    compute_checkerboard_accuracy, create_checkerboard, create_random_seed, HardCircuit, SimpleRng,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
 use std::env;
@@ -36,26 +35,33 @@ fn main() {
         }
     };
 
-    println!("Model loaded: {} channels, {} gates ({} active)",
-             circuit.channels, circuit.total_gate_count(), circuit.active_gate_count());
+    println!(
+        "Model loaded: {} channels, {} gates ({} active)",
+        circuit.channels,
+        circuit.total_gate_count(),
+        circuit.active_gate_count()
+    );
 
     // Test on different grid sizes
     let test_configs = [
         (16, 20, "training size"),
-        (32, 30, "2× scale"),
-        (64, 40, "4× scale - EXIT CRITERION"),
-        (128, 60, "8× scale"),
+        (32, 40, "2× scale"),
+        (64, 80, "4× scale - EXIT CRITERION"),
+        (128, 160, "8× scale"),
     ];
 
     let mut rng = SimpleRng::new(42);
     let num_trials = 5;
 
     println!("\n=== Running Generalization Tests ===");
-    println!("{:>8} {:>8} {:>8} {:>12} {:>12}", "Size", "Steps", "Trials", "Accuracy", "Status");
+    println!(
+        "{:>8} {:>8} {:>8} {:>12} {:>12}",
+        "Size", "Steps", "Trials", "Accuracy", "Status"
+    );
     println!("{:->8} {:->8} {:->8} {:->12} {:->12}", "", "", "", "", "");
 
     let mut all_passed = true;
-    
+
     for (size, steps, desc) in test_configs {
         let target = create_checkerboard(size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
 
@@ -78,11 +84,21 @@ fn main() {
                 "❌ FAIL"
             }
         } else {
-            if avg_acc >= 0.90 { "✓" } else { "△" }
+            if avg_acc >= 0.90 {
+                "✓"
+            } else {
+                "△"
+            }
         };
 
-        println!("{:>8} {:>8} {:>8} {:>11.1}% {:>12}",
-                 format!("{}×{}", size, size), steps, num_trials, avg_acc * 100.0, status);
+        println!(
+            "{:>8} {:>8} {:>8} {:>11.1}% {:>12}",
+            format!("{}×{}", size, size),
+            steps,
+            num_trials,
+            avg_acc * 100.0,
+            status
+        );
 
         // Print description
         if size == 64 {
