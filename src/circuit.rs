@@ -9,6 +9,7 @@
 //! - Serialize circuits for later use
 //! - Run inference using pure discrete logic
 
+use crate::grid::{BoundaryCondition, NGrid};
 use crate::phase_0_1::BinaryOp;
 use crate::perception::{GateLayer, PerceptionKernel, PerceptionModule, Wires};
 use crate::update::{DiffLogicCA, UpdateModule};
@@ -144,21 +145,52 @@ impl HardPerception {
     }
 
     /// Execute perception on a neighborhood (9 cells × channels)
-    /// Returns [center_channels..., kernel_outputs...]
+    /// Input format: [cell0_ch0, cell0_ch1, ..., cell8_ch0, cell8_ch1, ...]
+    /// Returns: [center_ch0, center_ch1, ..., kernel_outputs in (c,s,k) order]
     pub fn execute(&self, neighborhood: &[bool]) -> Vec<bool> {
         let channels = self.channels;
+        let num_kernels = self.kernels.len();
 
-        // Extract center cell (cell 4 in 3×3 grid)
-        let center: Vec<bool> = (0..channels)
-            .map(|c| neighborhood[4 * channels + c])
-            .collect();
+        // Determine output size per kernel (from first kernel)
+        let kernel_output_size = if !self.kernels.is_empty() {
+            // Output size is the number of gates in the final layer
+            self.kernels[0].layers.last().map(|l| l.gates.len()).unwrap_or(0)
+        } else {
+            0
+        };
 
-        // Run each kernel
-        let mut output = center;
-        for kernel in &self.kernels {
-            // Each kernel processes all 9 cells
-            let kernel_output = kernel.execute(neighborhood);
-            output.extend(kernel_output);
+        // Compute kernel outputs for each channel
+        // kernel_outputs[k][c] = Vec<bool> of size kernel_output_size
+        let mut kernel_outputs: Vec<Vec<Vec<bool>>> =
+            vec![vec![Vec::new(); channels]; num_kernels];
+
+        for c in 0..channels {
+            // Extract channel c from all 9 cells
+            let channel_inputs: Vec<bool> = (0..9)
+                .map(|pos| neighborhood[pos * channels + c])
+                .collect();
+
+            for (k, kernel) in self.kernels.iter().enumerate() {
+                kernel_outputs[k][c] = kernel.execute(&channel_inputs);
+            }
+        }
+
+        // Build output with correct ordering: (c s k)
+        let total_output_size = channels + channels * kernel_output_size * num_kernels;
+        let mut output = Vec::with_capacity(total_output_size);
+
+        // First: center cell values (cell 4)
+        for c in 0..channels {
+            output.push(neighborhood[4 * channels + c]);
+        }
+
+        // Then: for each channel, for each output bit, for each kernel
+        for c in 0..channels {
+            for s in 0..kernel_output_size {
+                for k in 0..num_kernels {
+                    output.push(kernel_outputs[k][c][s]);
+                }
+            }
         }
 
         output
@@ -172,6 +204,19 @@ impl HardPerception {
     /// Total gate count
     pub fn total_gate_count(&self) -> usize {
         self.kernels.iter().map(|k| k.total_gate_count()).sum()
+    }
+
+    /// Get gate distribution for perception module only
+    pub fn gate_distribution(&self) -> [usize; 16] {
+        let mut counts = [0usize; 16];
+        for kernel in &self.kernels {
+            for layer in &kernel.layers {
+                for gate in &layer.gates {
+                    counts[gate.op as usize] += 1;
+                }
+            }
+        }
+        counts
     }
 }
 
@@ -211,6 +256,17 @@ impl HardUpdate {
     /// Total gate count
     pub fn total_gate_count(&self) -> usize {
         self.layers.iter().map(|l| l.gates.len()).sum()
+    }
+
+    /// Get gate distribution for update module only
+    pub fn gate_distribution(&self) -> [usize; 16] {
+        let mut counts = [0usize; 16];
+        for layer in &self.layers {
+            for gate in &layer.gates {
+                counts[gate.op as usize] += 1;
+            }
+        }
+        counts
     }
 }
 
@@ -297,6 +353,67 @@ impl HardCircuit {
         Self::from_json(&json).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, e)
         })
+    }
+
+    /// Run one step of inference on an entire grid.
+    /// Uses non-periodic (zero-padded) boundaries.
+    pub fn step(&self, grid: &NGrid) -> NGrid {
+        let mut output = NGrid::new(
+            grid.width,
+            grid.height,
+            self.channels,
+            BoundaryCondition::NonPeriodic,
+        );
+
+        // Process each cell
+        for y in 0..grid.height {
+            for x in 0..grid.width {
+                // Extract 3×3 neighborhood as booleans (threshold at 0.5)
+                let neighborhood = self.extract_neighborhood(grid, x, y);
+
+                // Execute the circuit
+                let new_state = self.execute(&neighborhood);
+
+                // Write output (convert bool back to f64)
+                for c in 0..self.channels {
+                    output.set(x, y, c, if new_state[c] { 1.0 } else { 0.0 });
+                }
+            }
+        }
+
+        output
+    }
+
+    /// Run multiple steps of inference
+    pub fn run_steps(&self, input: &NGrid, steps: usize) -> NGrid {
+        let mut current = input.clone();
+        for _ in 0..steps {
+            current = self.step(&current);
+        }
+        current
+    }
+
+    /// Extract 3×3 neighborhood as boolean vector (9 cells × channels)
+    fn extract_neighborhood(&self, grid: &NGrid, x: usize, y: usize) -> Vec<bool> {
+        let mut result = Vec::with_capacity(9 * self.channels);
+
+        // Reading order: NW, N, NE, W, C, E, SW, S, SE (matches NNeighborhood)
+        let offsets: [(isize, isize); 9] = [
+            (-1, -1), (0, -1), (1, -1),  // NW, N, NE
+            (-1, 0),  (0, 0),  (1, 0),   // W, C, E
+            (-1, 1),  (0, 1),  (1, 1),   // SW, S, SE
+        ];
+
+        for (dx, dy) in offsets {
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            for c in 0..self.channels {
+                let val = grid.get(nx, ny, c);
+                result.push(val > 0.5);
+            }
+        }
+
+        result
     }
 }
 
@@ -449,5 +566,27 @@ mod tests {
         let loaded = HardCircuit::from_json(&json).unwrap();
         assert_eq!(loaded.channels, 8);
         assert_eq!(loaded.total_gate_count(), circuit.total_gate_count());
+    }
+
+    #[test]
+    fn test_hard_circuit_grid_inference() {
+        use crate::checkerboard::create_small_checkerboard_model;
+        use crate::grid::NGrid;
+
+        let model = create_small_checkerboard_model();
+        let circuit = HardCircuit::from_soft(&model);
+
+        // Create a small test grid (4×4, 8 channels)
+        let input = NGrid::non_periodic(4, 4, 8);
+
+        // Run one step - should not panic
+        let output = circuit.step(&input);
+        assert_eq!(output.width, 4);
+        assert_eq!(output.height, 4);
+
+        // Run multiple steps
+        let output2 = circuit.run_steps(&input, 3);
+        assert_eq!(output2.width, 4);
+        assert_eq!(output2.height, 4);
     }
 }

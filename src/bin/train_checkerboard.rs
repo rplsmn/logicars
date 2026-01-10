@@ -12,11 +12,12 @@
 //!   --noise[=SCALE]   Enable gradient noise (default scale: 0.001)
 //!   --log=FILE        Write training log to file (append mode)
 //!   --full            Run without epoch limit (until interrupted)
+//!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
     create_checkerboard_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate,
+    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate, HardCircuit,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
 };
@@ -86,6 +87,13 @@ fn main() {
     // Parse --full for unlimited epochs
     let unlimited_epochs = args.iter().any(|a| a == "--full");
 
+    // Parse --save=PATH for model saving
+    let save_path: Option<String> = args
+        .iter()
+        .find(|a| a.starts_with("--save="))
+        .and_then(|a| a.strip_prefix("--save="))
+        .map(|s| s.to_string());
+
     // Create model
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
@@ -127,6 +135,9 @@ fn main() {
     }
     if let Some(ref log_path) = log_file {
         println!("  Log file: {}", log_path);
+    }
+    if let Some(ref save) = save_path {
+        println!("  Model save path: {}", save);
     }
     println!();
 
@@ -245,14 +256,17 @@ fn main() {
              CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE, train_size_acc * 100.0);
 
     // Evaluate on larger grid (generalization test)
-    let large_size = 64;
+    // Paper quote: "scale up both the spatial and temporal dimensions by a factor of four"
+    let scale_factor = 4;
+    let large_size = CHECKERBOARD_GRID_SIZE * scale_factor; // 16 * 4 = 64
+    let large_steps = CHECKERBOARD_SYNC_STEPS * scale_factor; // 20 * 4 = 80
     let large_target = create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
     let large_input = create_random_seed(large_size, CHECKERBOARD_CHANNELS, &mut rng);
-    let large_output = training_loop.run_steps(&large_input, CHECKERBOARD_SYNC_STEPS);
+    let large_output = training_loop.run_steps(&large_input, large_steps);
     let large_acc = compute_checkerboard_accuracy(&large_output, &large_target);
 
-    println!("Large size ({}×{}): {:.2}% accuracy (generalization test)",
-             large_size, large_size, large_acc * 100.0);
+    println!("Large size ({}×{}, {} steps): {:.2}% accuracy (generalization test)",
+             large_size, large_size, large_steps, large_acc * 100.0);
 
     // Print sample output
     println!("\n=== Sample Output (channel 0, 8×8 top-left) ===\n");
@@ -279,4 +293,20 @@ fn main() {
     println!("  Total time: {:.1}s", total_time);
     println!("  Best accuracy: {:.2}%", best_accuracy * 100.0);
     println!("  Gates: {}", training_loop.model.total_gates());
+
+    // Save model if requested
+    if let Some(ref path) = save_path {
+        println!("\n=== Saving Model ===");
+        let circuit = HardCircuit::from_soft(&training_loop.model);
+        match circuit.save(path) {
+            Ok(()) => {
+                println!("  Saved HardCircuit to: {}", path);
+                println!("  Total gates: {}", circuit.total_gate_count());
+                println!("  Active gates: {}", circuit.active_gate_count());
+            }
+            Err(e) => {
+                eprintln!("  Error saving model: {}", e);
+            }
+        }
+    }
 }

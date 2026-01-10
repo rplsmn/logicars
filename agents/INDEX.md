@@ -133,11 +133,13 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 
 | Binary | Purpose |
 |--------|---------|
-| `train_checkerboard` | Phase 2.1 checkerboard training |
+| `train_checkerboard` | Phase 2.1 checkerboard training with --save, --log options |
+| `analyze_checkerboard` | Phase 2.1a gate distribution (CSV output) |
+| `visualize_checkerboard` | Phase 2.1a GIF generation (--size, --steps options) |
 | `train_gol` | Game of Life training |
 | `train_layer` | Single layer training demo |
 | `train_perception` | Perception module demo |
-| `debug_*` | Various debug utilities (can be deleted) |
+| `debug_*` | Various debug utilities (to be removed in Phase C) |
 
 ---
 

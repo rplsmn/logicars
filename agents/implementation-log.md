@@ -2,9 +2,9 @@
 
 > **Purpose**: Prime LLM agents on current state and boundaries. Full details in `plan.md`.
 
-**Last Updated**: 2026-01-09
-**Current Phase**: Phase 2.1a - Checkerboard Analysis & Documentation
-**Branch**: `docs/phase-a-reorganization` (PR #40 open)
+**Last Updated**: 2026-01-10
+**Current Phase**: Phase C - Deep Refactoring  
+**Branch**: TBD (create new branch)
 
 ---
 
@@ -17,36 +17,36 @@
 | 0.x | Gate primitives, backprop | ✅ | 2026-01-05 |
 | 1.x | N-bit architecture, GoL 99.41% | ✅ | 2026-01-06 |
 | 2.1 | Checkerboard C=8, 100% accuracy | ✅ | 2026-01-09 |
+| 2.1a | Analysis & generalization | ✅ | 2026-01-10 |
 | A | Documentation reorganization | ✅ | 2026-01-09 |
 | Perf 1,2,3,5 | CPU optimizations (~10-15x speedup) | ✅ | 2026-01-08 |
 
 **Test Count**: 148 passing
 **Architecture**: Stable, supports C=1 to C=128 channels
-**Major Milestone**: Phase 2.1 validated N-bit architecture generalizes beyond GoL
+**Major Milestone**: Phase 2.1a generalization validated (64×64 @ 80 steps)
 
 ---
 
-## 📋 Current Task: Phase 2.1a
+## 📋 Current Task: Phase C
 
-**Goal**: Analyze trained checkerboard model before Phase 2.2 (async).
+**Goal**: Clean codebase - remove legacy code, rename files.
 
-**See full details**: `agents/plan.md` → "Active Phase" → "Phase 2.1a"
+**See full details**: `agents/plan.md` → "Active Phase" → "Phase C"
 
-**What you'll do**:
-1. Create detailed implementation plan in `plans/phase-2.1a-analysis.md`
-2. Add model saving to training binary (not implemented yet)
-3. Load trained model, convert to HardCircuit, analyze gates
-4. Generate GIF of 20-step rollout
-5. Test generalization on 64×64 grid (>95% accuracy)
-6. Document findings, mark Phase 2.1 complete in plan.md
+**What Phase 2.1a completed** (2026-01-10):
+- Gate distribution analysis (overall, perception, update)
+- Generalization test (64×64 grid, 80 steps per paper)
+- Animated GIF visualization
+- Model serialization tools
 
-**Training data**: Results in `checkerboard_sync_log.csv` (epoch 512: 100% accuracy)
+**Next**: Refactor before Phase 2.2 (async checkerboard)
 
 ---
 
 ## ⚠️ Boundaries & Reminders
 
 ### What NOT to Do
+
 - ❌ Re-run training (already succeeded, takes ~35 min)
 - ❌ Re-read completed phase plans unless debugging specific feature
 - ❌ Implement performance optimizations (Phases 1,2,3,5 done)
@@ -54,6 +54,7 @@
 - ❌ Commit to main (always branch → PR → review → merge)
 
 ### Where to Find Things
+
 - **Code navigation**: `agents/INDEX.md` (file:line references)
 - **Implementation plans**: `plans/INDEX.md` (performance, GPU, serialization)
 - **Hyperparameters & architectures**: `agents/plan.md` → "Key Technical Details"
@@ -61,6 +62,7 @@
 - **Reference implementation**: `reference/diffLogic_CA.ipynb` (ALWAYS TRUST THIS)
 
 ### Critical Learnings (Project-Specific)
+
 1. **β2=0.99** is critical (not 0.999) - escapes local minima
 2. **Gradient scale=1.0** (raw sum, no averaging) - matches reference
 3. **Loss channel matters** - Checkerboard: only channel 0, others are working memory
@@ -93,4 +95,4 @@
 
 ---
 
-**Next Step**: Create `plans/phase-2.1a-analysis.md` with detailed implementation plan, then execute.
+**Next Step**: Create `plans/phase-c-refactoring.md` then remove legacy code

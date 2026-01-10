@@ -25,7 +25,9 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 | 0.x | ✅ | Gate primitives, backprop verified | 2026-01-05 |
 | 1.x | ✅ | N-bit architecture, GoL 99.41% | 2026-01-06 |
 | 2.1 | ✅ | Checkerboard C=8 sync training | 2026-01-09 |
-| 2.1a | 🚧 | Checkerboard analysis & docs | In progress |
+| 2.1a | ✅ | Checkerboard analysis & docs | 2026-01-10 |
+| A | ✅ | Documentation reorganization | 2026-01-09 |
+| C | ⬜ | Deep refactoring (remove legacy) | Not started |
 | 2.2 | ⬜ | Checkerboard async (self-healing) | Not started |
 | 2.3 | ⬜ | Growing Lizard C=128 | Not started |
 | 2.5 | ⬜ | Minimal PyO3 bindings | Not started |
@@ -34,7 +36,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 | 4.x | 🚧 | Performance (partial) | Ongoing |
 | 5.x | ⬜ | Ecosystem (PyO3, extendr, WASM) | Not started |
 
-**Current Focus**: Phase 2.1a - Complete checkerboard analysis and documentation
+**Current Focus**: Phase C - Deep refactoring before Phase 2.2 (async)
 
 ---
 
@@ -121,9 +123,9 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 - ✅ Pattern emerges from random seed in 20 steps
 - ✅ Training converges to 100% accuracy
 - ✅ Soft and hard losses both converge
-- ⬜ Gate distribution analysis (Phase 2.1a)
-- ⬜ Generalization to 64×64 grid (Phase 2.1a)
-- ⬜ Visual reconstruction GIF (Phase 2.1a)
+- ✅ Gate distribution analysis (Phase 2.1a complete)
+- ✅ Generalization to 64×64 grid (Phase 2.1a complete)
+- ✅ Visual reconstruction GIF (Phase 2.1a complete)
 
 **Critical learnings**:
 
@@ -136,42 +138,17 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 
 ## Active Phase
 
-### Phase 2.1a: Checkerboard Analysis & Documentation 🚧
+### Phase C: Deep Refactoring 🚧
 
-**Goal**: Complete scientific analysis and documentation before moving to Phase 2.2.
+**Goal**: Clean codebase - remove dead code, rename files before Phase 2.2.
 
-**Tasks**:
-
-1. **Gate Distribution Analysis**
-   - Convert trained model to HardCircuit
-   - Count active vs pass-through gates
-   - Analyze which operations were learned
-   - Export analysis to text/CSV
-
-2. **Visual Reconstruction**
-   - Generate animated GIF of 20-step rollout
-   - Show pattern emergence from random seed
-   - Throwaway code in binary is fine
-
-3. **Generalization Testing**
-   - Test trained 16×16 model on 64×64 grid
-   - Success criteria: >95% accuracy
-   - May need more than 20 steps for larger grids
-
-4. **Documentation**
-   - Update implementation-log.md with results
-   - Mark Phase 2.1 as fully complete
-   - Capture key insights for next phases
+**Tasks**: See `agents/plan.md` "Maintenance Plan" section for full details.
 
 **Exit criteria**:
-
-- ✅ Gate distribution analysis saved
-- ✅ Animated GIF generated
-- ✅ 64×64 generalization validated (>95% accuracy)
-- ✅ All results documented in implementation-log.md
-- ✅ Phase 2.1 marked ✅ COMPLETE in plan.md
-
-**Implementation details**: See `plans/phase-2.1a-analysis.md` (to be created)
+- ✅ No `phase_*.rs` files (except renamed `gates.rs`)
+- ✅ <10 binaries in `src/bin/`
+- ✅ All 148+ tests pass
+- ✅ `agents/INDEX.md` accurate
 
 ---
 
@@ -540,8 +517,8 @@ cargo run --bin train_checkerboard --release -- --log-interval=10
 
 ---
 
-**Last Updated**: 2026-01-09
+**Last Updated**: 2026-01-10
 
 **Current Test Count**: 148 passing
-**Current Focus**: Phase 2.1a (analysis & documentation)
+**Current Focus**: Phase C (deep refactoring)
 **Next Phase**: Phase 2.2 (async checkerboard)
