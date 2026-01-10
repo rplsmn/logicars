@@ -1,9 +1,12 @@
 //! Generate animated GIF of checkerboard model rollout.
 //!
 //! Usage:
-//!   cargo run --bin visualize_checkerboard --release -- <model.json> [output.gif]
+//!   cargo run --bin visualize_checkerboard --release -- <model.json> [output.gif] [--size=N] [--steps=N]
 //!
 //! Creates an animated GIF showing the pattern emerging from random noise.
+//! Options:
+//!   --size=N   Grid size (default: 16)
+//!   --steps=N  Number of steps (default: 25)
 
 use image::{RgbaImage, Rgba, codecs::gif::{GifEncoder, Repeat}};
 use image::Frame;
@@ -47,8 +50,11 @@ fn main() {
     // Parse model path (required)
     let model_path = args.get(1).filter(|a| !a.starts_with("--"));
     if model_path.is_none() {
-        eprintln!("Usage: visualize_checkerboard <model.json> [output.gif]");
+        eprintln!("Usage: visualize_checkerboard <model.json> [output.gif] [--size=N] [--steps=N]");
         eprintln!("\nGenerate animated GIF of model rollout.");
+        eprintln!("Options:");
+        eprintln!("  --size=N   Grid size (default: 16)");
+        eprintln!("  --steps=N  Number of steps (default: 25)");
         std::process::exit(1);
     }
     let model_path = model_path.unwrap();
@@ -58,6 +64,22 @@ fn main() {
         .filter(|a| !a.starts_with("--"))
         .cloned()
         .unwrap_or_else(|| "checkerboard_rollout.gif".to_string());
+
+    // Parse --size=N for custom grid size
+    let grid_size: usize = args
+        .iter()
+        .find(|a| a.starts_with("--size="))
+        .and_then(|a| a.strip_prefix("--size="))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(CHECKERBOARD_GRID_SIZE);
+
+    // Parse --steps=N for custom step count
+    let num_steps: usize = args
+        .iter()
+        .find(|a| a.starts_with("--steps="))
+        .and_then(|a| a.strip_prefix("--steps="))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(25);
 
     println!("=== Checkerboard Visualization ===\n");
     println!("Loading model from: {}", model_path);
@@ -74,8 +96,6 @@ fn main() {
     println!("Model loaded: {} channels, {} gates", circuit.channels, circuit.total_gate_count());
 
     // Parameters
-    let grid_size = CHECKERBOARD_GRID_SIZE;
-    let num_steps = 25; // 20 steps + 5 extra to show stable pattern
     let scale = 8u32;   // Scale up for visibility
     let frame_delay_ms = 150; // 150ms per frame
 

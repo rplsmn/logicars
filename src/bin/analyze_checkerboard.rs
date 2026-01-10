@@ -110,12 +110,40 @@ fn main() {
         use std::io::Write;
 
         let mut f = File::create(csv).expect("Failed to create CSV file");
+        
+        // Overall distribution
+        writeln!(f, "# Overall Gate Distribution").unwrap();
         writeln!(f, "operation,index,count,percent").unwrap();
         for (i, &count) in dist.iter().enumerate() {
             let op = BinaryOp::ALL[i];
             let pct = 100.0 * count as f64 / total_gates as f64;
             writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
         }
+        
+        // Perception distribution
+        writeln!(f, "").unwrap();
+        writeln!(f, "# Perception Module Gate Distribution").unwrap();
+        writeln!(f, "operation,index,count,percent").unwrap();
+        let perc_dist = circuit.perception.gate_distribution();
+        let perc_total = circuit.perception.total_gate_count();
+        for (i, &count) in perc_dist.iter().enumerate() {
+            let op = BinaryOp::ALL[i];
+            let pct = 100.0 * count as f64 / perc_total as f64;
+            writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
+        }
+        
+        // Update distribution
+        writeln!(f, "").unwrap();
+        writeln!(f, "# Update Module Gate Distribution").unwrap();
+        writeln!(f, "operation,index,count,percent").unwrap();
+        let upd_dist = circuit.update.gate_distribution();
+        let upd_total = circuit.update.total_gate_count();
+        for (i, &count) in upd_dist.iter().enumerate() {
+            let op = BinaryOp::ALL[i];
+            let pct = 100.0 * count as f64 / upd_total as f64;
+            writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
+        }
+        
         println!("\n=== Export ===");
         println!("  Gate distribution saved to: {}", csv);
     }

@@ -205,6 +205,19 @@ impl HardPerception {
     pub fn total_gate_count(&self) -> usize {
         self.kernels.iter().map(|k| k.total_gate_count()).sum()
     }
+
+    /// Get gate distribution for perception module only
+    pub fn gate_distribution(&self) -> [usize; 16] {
+        let mut counts = [0usize; 16];
+        for kernel in &self.kernels {
+            for layer in &kernel.layers {
+                for gate in &layer.gates {
+                    counts[gate.op as usize] += 1;
+                }
+            }
+        }
+        counts
+    }
 }
 
 /// Hard update module
@@ -243,6 +256,17 @@ impl HardUpdate {
     /// Total gate count
     pub fn total_gate_count(&self) -> usize {
         self.layers.iter().map(|l| l.gates.len()).sum()
+    }
+
+    /// Get gate distribution for update module only
+    pub fn gate_distribution(&self) -> [usize; 16] {
+        let mut counts = [0usize; 16];
+        for layer in &self.layers {
+            for gate in &layer.gates {
+                counts[gate.op as usize] += 1;
+            }
+        }
+        counts
     }
 }
 
