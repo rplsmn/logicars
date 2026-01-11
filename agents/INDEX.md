@@ -120,13 +120,19 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 ### Gradient Scaling
 - `training.rs:573-580`: Uses `scale = 1.0` (raw sum, no averaging) to match reference
 
+### Async Training (Fire Rate Masking)
+- `training.rs:441-511`: `forward_grid_soft_async()` - forward pass with fire rate masking
+- `training.rs:641-722`: `compute_sample_gradients_async()` - async gradient computation
+- `training.rs:855-927`: Backward pass handles fire_mask (skips unfired cells)
+
 ---
 
 ## Binaries
 
 | Binary | Purpose |
 |--------|---------|
-| `train_checkerboard` | Phase 2.1 checkerboard training with --save, --log options |
+| `train_checkerboard` | Phase 2.1 sync checkerboard training with --save, --log options |
+| `train_checkerboard_async` | Phase 2.2 async training with fire rate masking, self-healing test |
 | `analyze_checkerboard` | Phase 2.1a gate distribution (CSV output) |
 | `visualize_checkerboard` | Phase 2.1a GIF generation (--size, --steps options) |
 | `train_gol` | Game of Life training |
@@ -136,8 +142,9 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 
 ## Test Commands
 ```bash
-cargo test --lib                    # All unit tests (121 tests)
+cargo test --lib                    # All unit tests (126 tests)
 cargo test --lib -- --nocapture     # With output
 cargo test grid::tests              # Specific module
+cargo test -- async                 # Async training tests only
 cargo build --release               # Release build
 ```
