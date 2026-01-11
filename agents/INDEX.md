@@ -31,16 +31,9 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 | `update.rs` | Update network, full CA model | `UpdateModule`, `DiffLogicCA`, `DiffLogicCATrainer` |
 | `training.rs` | BPTT training loop, optimizer | `TrainingLoop`, `TrainingConfig`, `SimpleRng` |
 | `checkerboard.rs` | Checkerboard task setup | `create_checkerboard_model()`, loss/accuracy fns |
-| `phase_0_1.rs` | Single gate operations | `BinaryOp`, `ProbabilisticGate` |
+| `gates.rs` | Single gate operations | `BinaryOp`, `ProbabilisticGate` |
 | `circuit.rs` | Hard (discrete) inference | `HardCircuit`, `HardPerception`, `HardUpdate` |
 | `optimizer.rs` | AdamW optimizer | `AdamW` |
-
-### Legacy/Archive Modules (rarely needed)
-- `phase_0_2.rs` - Gate layer training (superseded by circuit.rs)
-- `phase_0_3.rs` - Circuit training (superseded by training.rs)
-- `phase_1_1.rs` - Old perception/grid (superseded by perception.rs, grid.rs)
-- `trainer.rs` - Old gate trainer (superseded by training.rs)
-- `gpu/` - WGPU-based GPU acceleration code (Phase 1 basic wgpu setup merged). Status: PAUSED/FROZEN — experimental GPU work; do NOT use or rely on this while CPU implementation is the active development track.
 
 ---
 
@@ -95,7 +88,7 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 187  compute_checkerboard_accuracy()     Hard accuracy on channel 0
 ```
 
-### Gate Operations (`phase_0_1.rs`)
+### Gate Operations (`gates.rs`)
 ```
 12   BinaryOp enum - all 16 binary operations
 70   ALL: [BinaryOp; 16] - ordered by truth table value
@@ -114,7 +107,7 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 - **Hard**: `argmax(logits)` selects single op → discrete/fast
 
 ### Pass-Through Gate Init
-- `phase_0_1.rs:102`: logits[12] = 10.0 (op A at index 12 in our ordering)
+- `gates.rs:102`: logits[12] = 10.0 (op A at index 12 in our ordering)
 
 ### Perception Output Layout
 - `perception.rs:373`: Order is (c, s, k) = channel, sobel, kernel
@@ -137,15 +130,13 @@ Input Grid → PerceptionModule → UpdateModule → Output Grid
 | `analyze_checkerboard` | Phase 2.1a gate distribution (CSV output) |
 | `visualize_checkerboard` | Phase 2.1a GIF generation (--size, --steps options) |
 | `train_gol` | Game of Life training |
-| `train_layer` | Single layer training demo |
-| `train_perception` | Perception module demo |
-| `debug_*` | Various debug utilities (to be removed in Phase C) |
+| `test_generalization` | Test model on larger grids |
 
 ---
 
 ## Test Commands
 ```bash
-cargo test --lib                    # All unit tests
+cargo test --lib                    # All unit tests (121 tests)
 cargo test --lib -- --nocapture     # With output
 cargo test grid::tests              # Specific module
 cargo build --release               # Release build

@@ -8,22 +8,6 @@ name = "logicars"
 # cdylib is only needed for Python bindings - uncomment when implementing Phase 5.1
 # crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "train_gate"
-path = "src/bin/train_gate.rs"
-
-[[bin]]
-name = "train_layer"
-path = "src/bin/train_layer.rs"
-
-[[bin]]
-name = "train_circuit"
-path = "src/bin/train_circuit.rs"
-
-[[bin]]
-name = "train_perception"
-path = "src/bin/train_perception.rs"
-
 [dependencies]
 # Core dependencies
 rand = "0.9"

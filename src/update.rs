@@ -14,7 +14,7 @@
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
 use crate::perception::{unique_connections, GateLayer, PerceptionModule};
-use crate::phase_0_1::{BinaryOp, ProbabilisticGate};
+use crate::gates::{BinaryOp, ProbabilisticGate};
 
 /// Update module that transforms perception output to next cell state
 ///

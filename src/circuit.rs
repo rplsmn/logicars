@@ -10,7 +10,7 @@
 //! - Run inference using pure discrete logic
 
 use crate::grid::{BoundaryCondition, NGrid};
-use crate::phase_0_1::BinaryOp;
+use crate::gates::BinaryOp;
 use crate::perception::{GateLayer, PerceptionKernel, PerceptionModule, Wires};
 use crate::update::{DiffLogicCA, UpdateModule};
 use serde::{Deserialize, Serialize};
