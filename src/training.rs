@@ -15,7 +15,7 @@
 use crate::grid::{BoundaryCondition, NGrid, NNeighborhood};
 use crate::optimizer::AdamW;
 use crate::perception::{GateLayer, PerceptionModule};
-use crate::phase_0_1::BinaryOp;
+use crate::gates::BinaryOp;
 use crate::update::{DiffLogicCA, UpdateModule};
 use rayon::prelude::*;
 
@@ -1064,7 +1064,7 @@ struct GridActivations {
 }
 
 /// Compute gradient of gate output w.r.t. its inputs
-fn compute_gate_input_grads(gate: &crate::phase_0_1::ProbabilisticGate, a: f64, b: f64) -> (f64, f64) {
+fn compute_gate_input_grads(gate: &crate::gates::ProbabilisticGate, a: f64, b: f64) -> (f64, f64) {
     let probs = gate.probabilities();
     let mut da = 0.0;
     let mut db = 0.0;

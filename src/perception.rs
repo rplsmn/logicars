@@ -12,7 +12,7 @@
 
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
-use crate::phase_0_1::{BinaryOp, ProbabilisticGate};
+use crate::gates::{BinaryOp, ProbabilisticGate};
 
 /// Connection topology types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

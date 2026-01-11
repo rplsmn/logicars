@@ -13,9 +13,39 @@
 //!   --log-interval=N  How often to log accuracy/loss (default: 100, 50 for small)
 
 use logicars::{
-    ConnectionType, DiffLogicCA, DiffLogicCATrainer, GolTruthTable, NGrid, NNeighborhood,
+    ConnectionType, DiffLogicCA, DiffLogicCATrainer, NGrid, NNeighborhood,
     PerceptionModule, UpdateModule,
 };
+
+/// Game of Life truth table - all 512 neighborhood configurations
+struct GolTruthTable {
+    targets: [bool; 512],
+}
+
+impl GolTruthTable {
+    fn new() -> Self {
+        let mut targets = [false; 512];
+        for idx in 0..512 {
+            // Each bit of idx represents one cell in the 3x3 neighborhood
+            let center = (idx >> 4) & 1 == 1;
+            let neighbor_count = (0..9)
+                .filter(|&i| i != 4 && (idx >> i) & 1 == 1)
+                .count();
+
+            // Game of Life rules
+            targets[idx] = if center {
+                neighbor_count == 2 || neighbor_count == 3
+            } else {
+                neighbor_count == 3
+            };
+        }
+        Self { targets }
+    }
+
+    fn target(&self, idx: usize) -> bool {
+        self.targets[idx]
+    }
+}
 use rand::seq::SliceRandom;
 use std::time::Instant;
 

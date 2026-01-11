@@ -27,7 +27,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 | 2.1 | ✅ | Checkerboard C=8 sync training | 2026-01-09 |
 | 2.1a | ✅ | Checkerboard analysis & docs | 2026-01-10 |
 | A | ✅ | Documentation reorganization | 2026-01-09 |
-| C | ⬜ | Deep refactoring (remove legacy) | Not started |
+| C | ✅ | Deep refactoring (remove legacy) | 2026-01-11 |
 | 2.2 | ⬜ | Checkerboard async (self-healing) | Not started |
 | 2.3 | ⬜ | Growing Lizard C=128 | Not started |
 | 2.5 | ⬜ | Minimal PyO3 bindings | Not started |
@@ -36,7 +36,7 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 | 4.x | 🚧 | Performance (partial) | Ongoing |
 | 5.x | ⬜ | Ecosystem (PyO3, extendr, WASM) | Not started |
 
-**Current Focus**: Phase C - Deep refactoring before Phase 2.2 (async)
+**Current Focus**: Phase 2.2 - Checkerboard async (self-healing)
 
 ---
 
@@ -136,18 +136,22 @@ Implementation of differentiable logic cellular automata for learning CA rules, 
 
 ---
 
-## Active Phase
+## Completed Phase
 
-### Phase C: Deep Refactoring 🚧
+### Phase C: Deep Refactoring ✅
 
-**Goal**: Clean codebase - remove dead code, rename files before Phase 2.2.
+**Completed**: 2026-01-11
 
-**Tasks**: See `agents/plan.md` "Maintenance Plan" section for full details.
+**What was done**:
+- Removed legacy modules: phase_0_2.rs, phase_0_3.rs, phase_1_1.rs, trainer.rs
+- Renamed phase_0_1.rs → gates.rs
+- Removed 15 debug/legacy binaries (5 remaining)
+- Updated lib.rs, Cargo.toml, agents/INDEX.md
 
-**Exit criteria**:
-- ✅ No `phase_*.rs` files (except renamed `gates.rs`)
-- ✅ <10 binaries in `src/bin/`
-- ✅ All 148+ tests pass
+**Exit criteria met**:
+- ✅ No `phase_*.rs` files (gates.rs is the renamed file)
+- ✅ 5 binaries in `src/bin/` (<10 target)
+- ✅ All 121 tests pass
 - ✅ `agents/INDEX.md` accurate
 
 ---
@@ -517,8 +521,8 @@ cargo run --bin train_checkerboard --release -- --log-interval=10
 
 ---
 
-**Last Updated**: 2026-01-10
+**Last Updated**: 2026-01-11
 
-**Current Test Count**: 148 passing
-**Current Focus**: Phase C (deep refactoring)
-**Next Phase**: Phase 2.2 (async checkerboard)
+**Current Test Count**: 121 passing
+**Current Focus**: Phase 2.2 (async checkerboard)
+**Next Phase**: Phase 2.3 (Growing Lizard)
