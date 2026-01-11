@@ -3,8 +3,8 @@
 > **Purpose**: Prime LLM agents on current state and boundaries. Full details in `plan.md`.
 
 **Last Updated**: 2026-01-11
-**Current Phase**: Phase 2.2 - Checkerboard Async
-**Branch**: TBD (create new branch)
+**Current Phase**: Phase 2.2 - Checkerboard Async (PR #44 open)
+**Branch**: feature/phase-2.2-async
 
 ---
 
@@ -20,26 +20,31 @@
 | 2.1a | Analysis & generalization | ✅ | 2026-01-10 |
 | A | Documentation reorganization | ✅ | 2026-01-09 |
 | C | Deep refactoring | ✅ | 2026-01-11 |
+| 2.2 | Async training (fire rate masking) | 🔄 PR#44 | 2026-01-11 |
 | Perf 1,2,3,5 | CPU optimizations (~10-15x speedup) | ✅ | 2026-01-08 |
 
-**Test Count**: 121 passing (reduced after removing legacy code)
+**Test Count**: 126 passing (+5 async tests)
 **Architecture**: Stable, supports C=1 to C=128 channels
 **Codebase**: Cleaned - legacy modules removed, gates.rs renamed
 
 ---
 
-## 📋 Next Task: Phase 2.2
+## 📋 Phase 2.2 Implementation Complete
 
-**Goal**: Add asynchronous training with fire rate masking - demonstrate self-healing.
+**Goal**: Async training with fire rate masking for self-healing capability.
 
-**See full details**: `agents/plan.md` → "Planned Phases" → "Phase 2.2"
+**What was implemented** (2026-01-11):
 
-**What Phase C completed** (2026-01-11):
+- `forward_grid_soft_async()` - forward pass with fire rate masking
+- `compute_sample_gradients_async()` - async gradient computation
+- Backward pass handles fire_mask (skips unfired cells)
+- 5 new unit tests for async functionality
+- `train_checkerboard_async` binary with self-healing test
+- Updated INDEX.md and plans/INDEX.md
 
-- Removed legacy modules: phase_0_2.rs, phase_0_3.rs, phase_1_1.rs, trainer.rs
-- Renamed phase_0_1.rs → gates.rs
-- Removed 15 debug/legacy binaries (5 remaining)
-- Updated lib.rs, Cargo.toml, INDEX.md
+**PR**: https://github.com/rplsmn/logicars/pull/44
+
+**Next**: After merge, run full async training (~1hr) to verify self-healing
 
 ---
 
@@ -47,7 +52,7 @@
 
 ### What NOT to Do
 
-- ❌ Re-run training (already succeeded, takes ~35 min)
+- ❌ Re-run sync training (already succeeded)
 - ❌ Implement performance optimizations (Phases 1,2,3,5 done)
 - ❌ Start GPU work (frozen - see `reference/burn-evaluation.md`)
 - ❌ Commit to main (always branch → PR → review → merge)
@@ -65,31 +70,18 @@
 2. **Gradient scale=1.0** (raw sum, no averaging) - matches reference
 3. **Loss channel matters** - Checkerboard: only channel 0, others are working memory
 4. **200-epoch plateau is normal** - Gates escaping pass-through initialization
-5. **Batch training helps** - batch_size=2 provides gradient variance
-
----
-
-## 🔄 Agent Workflow
-
-1. **Read**: AGENTS.md → plan.md → implementation-log.md (this file)
-2. **Plan**: Create detailed implementation plan in `plans/phase-X.X-name.md`   - Atomic tasks with clear success criteria
-   - Anticipated tests
-   - File changes needed
-3. **Implement**: Follow TDD, run tests frequently, commit when tests pass
-4. **PR**: Push branch, create PR, wait for human review
-5. **Update**: After merge, update this log (keep compact!), mark phase complete in plan.md
-
-**Remember**: This log, plan.md, and AGENTS.md go in EVERY context window. Keep them compact and unambiguous.
+5. **Batch training helps** - batch_size=2 provides gradient variance (sync only)
+6. **Async uses batch_size=1** - reference uses single samples for async
 
 ---
 
 ## 📊 Quick Stats
 
-- **Lines of Rust**: ~5000 (after cleanup)
-- **Test coverage**: 121 unit tests, all passing
-- **Binaries**: 5 (train_checkerboard, train_gol, analyze_checkerboard, visualize_checkerboard, test_generalization)
+- **Lines of Rust**: ~5800 (after async additions)
+- **Test coverage**: 126 unit tests, all passing
+- **Binaries**: 6 (train_checkerboard, train_checkerboard_async, train_gol, analyze_checkerboard, visualize_checkerboard, test_generalization)
 - **Performance**: ~10-15x faster than initial (rayon parallelization + caching)
 
 ---
 
-**Next Step**: Create `plans/phase-2.2-async.md` then implement fire rate masking
+**Next Step**: Await PR review, then run async training to verify self-healing
