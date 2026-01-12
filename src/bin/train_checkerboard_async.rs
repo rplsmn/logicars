@@ -19,9 +19,9 @@
 
 use logicars::{
     create_checkerboard, create_random_seed, create_small_checkerboard_model,
-    create_checkerboard_model, compute_checkerboard_accuracy,
+    create_checkerboard_async_model, compute_checkerboard_accuracy,
     TrainingLoop, TrainingConfig, SimpleRng, HardCircuit,
-    CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
+    CHECKERBOARD_CHANNELS, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_ASYNC_STEPS,
 };
 use std::fs::{File, OpenOptions};
@@ -66,13 +66,13 @@ fn main() {
         .and_then(|a| a.strip_prefix("--save="))
         .map(|s| s.to_string());
 
-    // Create model
+    // Create model - async uses deeper network (14×256 vs 10×256 for sync)
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
         create_small_checkerboard_model()
     } else {
-        println!("Using FULL checkerboard model...\n");
-        create_checkerboard_model()
+        println!("Using ASYNC checkerboard model (14×256 hidden layers)...\n");
+        create_checkerboard_async_model()
     };
 
     println!("Model architecture:");
@@ -87,7 +87,7 @@ fn main() {
     // Create async config
     let config = TrainingConfig::checkerboard_async();
     println!("Training configuration (ASYNC mode):");
-    println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
+    println!("  Grid size: {}×{}", CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE);
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
     println!("  Steps per epoch: {} (async)", config.num_steps);
     println!("  Fire rate: {:.1}%", config.fire_rate * 100.0);
@@ -109,13 +109,13 @@ fn main() {
 
     // Create target pattern
     let target = create_checkerboard(
-        CHECKERBOARD_GRID_SIZE,
+        CHECKERBOARD_ASYNC_GRID_SIZE,
         CHECKERBOARD_SQUARE_SIZE,
         CHECKERBOARD_CHANNELS,
     );
 
     println!("Target: {}×{} checkerboard with {}×{} squares\n",
-             CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE,
+             CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE,
              CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_SQUARE_SIZE);
 
     // Training loop
@@ -149,7 +149,7 @@ fn main() {
     for epoch in 0..epochs {
         // Create random seed for this epoch
         let input = create_random_seed(
-            CHECKERBOARD_GRID_SIZE,
+            CHECKERBOARD_ASYNC_GRID_SIZE,
             CHECKERBOARD_CHANNELS,
             &mut rng,
         );
@@ -162,7 +162,7 @@ fn main() {
         if epoch % eval_interval == 0 || is_last {
             // Run hard evaluation with async steps
             let test_input = create_random_seed(
-                CHECKERBOARD_GRID_SIZE,
+                CHECKERBOARD_ASYNC_GRID_SIZE,
                 CHECKERBOARD_CHANNELS,
                 &mut rng,
             );
@@ -198,7 +198,7 @@ fn main() {
     let num_eval = 10;
     for _ in 0..num_eval {
         let test_input = create_random_seed(
-            CHECKERBOARD_GRID_SIZE,
+            CHECKERBOARD_ASYNC_GRID_SIZE,
             CHECKERBOARD_CHANNELS,
             &mut rng,
         );
@@ -208,13 +208,13 @@ fn main() {
     let train_size_acc = total_acc / num_eval as f64;
 
     println!("Training size ({}×{}): {:.2}% accuracy",
-             CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE, train_size_acc * 100.0);
+             CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE, train_size_acc * 100.0);
 
     // Test self-healing: damage the grid and see if it recovers
     println!("\n=== Self-Healing Test ===\n");
     
     // Start from pattern (run until converged)
-    let mut grid = create_random_seed(CHECKERBOARD_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
+    let mut grid = create_random_seed(CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
     for _ in 0..100 {
         grid = training_loop.run_steps(&grid, 1);
     }
@@ -223,7 +223,7 @@ fn main() {
 
     // Damage: zero out center 4x4 region
     let damage_size = 4;
-    let damage_start = (CHECKERBOARD_GRID_SIZE - damage_size) / 2;
+    let damage_start = (CHECKERBOARD_ASYNC_GRID_SIZE - damage_size) / 2;
     for y in damage_start..(damage_start + damage_size) {
         for x in damage_start..(damage_start + damage_size) {
             for c in 0..CHECKERBOARD_CHANNELS {
