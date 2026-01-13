@@ -11,6 +11,7 @@
 //!
 //! For GoL: [17→128×10→64→32→16→8→4→2→1]
 
+use crate::Float;
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
 use crate::perception::{unique_connections, GateLayer, PerceptionModule};
@@ -115,7 +116,7 @@ impl UpdateModule {
     /// Forward pass in soft mode
     ///
     /// Returns all layer activations for gradient computation
-    pub fn forward_soft(&self, inputs: &[f64]) -> Vec<Vec<f64>> {
+    pub fn forward_soft(&self, inputs: &[Float]) -> Vec<Vec<Float>> {
         assert_eq!(
             inputs.len(),
             self.input_size,
@@ -136,7 +137,7 @@ impl UpdateModule {
     }
 
     /// Forward pass in hard mode
-    pub fn forward_hard(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn forward_hard(&self, inputs: &[Float]) -> Vec<Float> {
         let mut current = inputs.to_vec();
 
         for layer in &self.layers {
@@ -147,7 +148,7 @@ impl UpdateModule {
     }
 
     /// Get final output from soft forward pass
-    pub fn output_soft(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn output_soft(&self, inputs: &[Float]) -> Vec<Float> {
         let activations = self.forward_soft(inputs);
         activations.last().cloned().unwrap_or_default()
     }
@@ -157,12 +158,12 @@ impl UpdateModule {
     /// Returns gradients indexed by [layer][gate][logit]
     pub fn compute_gradients(
         &self,
-        inputs: &[f64],
-        activations: &[Vec<f64>],
-        output_gradients: &[f64],
-    ) -> Vec<Vec<[f64; 16]>> {
+        inputs: &[Float],
+        activations: &[Vec<Float>],
+        output_gradients: &[Float],
+    ) -> Vec<Vec<[Float; 16]>> {
         let num_layers = self.layers.len();
-        let mut all_gradients: Vec<Vec<[f64; 16]>> = Vec::with_capacity(num_layers);
+        let mut all_gradients: Vec<Vec<[Float; 16]>> = Vec::with_capacity(num_layers);
 
         // Initialize gradient storage
         for layer in &self.layers {
@@ -177,7 +178,7 @@ impl UpdateModule {
             let layer = &self.layers[layer_idx];
 
             // Get inputs to this layer
-            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+            let layer_inputs: Vec<Float> = if layer_idx == 0 {
                 inputs.to_vec()
             } else {
                 activations[layer_idx - 1].clone()
@@ -233,7 +234,7 @@ impl UpdateModule {
 }
 
 /// Compute gradients of gate output w.r.t. inputs a and b
-fn compute_gate_input_gradients(gate: &ProbabilisticGate, a: f64, b: f64) -> (f64, f64) {
+fn compute_gate_input_gradients(gate: &ProbabilisticGate, a: Float, b: Float) -> (Float, Float) {
     let probs = gate.probabilities();
     let mut da = 0.0;
     let mut db = 0.0;
@@ -248,7 +249,7 @@ fn compute_gate_input_gradients(gate: &ProbabilisticGate, a: f64, b: f64) -> (f6
 }
 
 /// Compute gradients of operation output w.r.t. its inputs
-fn op_input_gradients(op: BinaryOp, a: f64, b: f64) -> (f64, f64) {
+fn op_input_gradients(op: BinaryOp, a: Float, b: Float) -> (Float, Float) {
     match op {
         BinaryOp::False => (0.0, 0.0),
         BinaryOp::And => (b, a),
@@ -314,7 +315,7 @@ impl DiffLogicCA {
     pub fn forward_soft(
         &self,
         neighborhood: &NNeighborhood,
-    ) -> (Vec<f64>, Vec<Vec<Vec<Vec<f64>>>>, Vec<Vec<f64>>) {
+    ) -> (Vec<Float>, Vec<Vec<Vec<Vec<Float>>>>, Vec<Vec<Float>>) {
         // Run perception
         let (perception_output, perception_activations) =
             self.perception.forward_soft(neighborhood);
@@ -327,7 +328,7 @@ impl DiffLogicCA {
     }
 
     /// Forward pass in hard mode
-    pub fn forward_hard(&self, neighborhood: &NNeighborhood) -> Vec<f64> {
+    pub fn forward_hard(&self, neighborhood: &NNeighborhood) -> Vec<Float> {
         let perception_output = self.perception.forward_hard(neighborhood);
         self.update.forward_hard(&perception_output)
     }
@@ -340,13 +341,13 @@ pub struct DiffLogicCATrainer {
     perception_optimizers: Vec<Vec<Vec<AdamW>>>,
     /// Optimizers for update: [layer][gate]
     update_optimizers: Vec<Vec<AdamW>>,
-    pub learning_rate: f64,
+    pub learning_rate: Float,
     pub iteration: usize,
 }
 
 impl DiffLogicCATrainer {
     /// Create a new trainer
-    pub fn new(model: DiffLogicCA, learning_rate: f64) -> Self {
+    pub fn new(model: DiffLogicCA, learning_rate: Float) -> Self {
         // Create perception optimizers
         let perception_optimizers: Vec<Vec<Vec<AdamW>>> = model
             .perception
@@ -389,7 +390,7 @@ impl DiffLogicCATrainer {
     /// Train on a single neighborhood example
     ///
     /// Returns the loss for this example
-    pub fn train_step(&mut self, neighborhood: &NNeighborhood, target: &[f64]) -> f64 {
+    pub fn train_step(&mut self, neighborhood: &NNeighborhood, target: &[Float]) -> Float {
         // Forward pass
         let (perception_output, perception_activations) =
             self.model.perception.forward_soft(neighborhood);
@@ -398,7 +399,7 @@ impl DiffLogicCATrainer {
 
         // Compute loss (MSE)
         let mut loss = 0.0;
-        let output_gradients: Vec<f64> = output
+        let output_gradients: Vec<Float> = output
             .iter()
             .zip(target.iter())
             .map(|(&o, &t)| {
@@ -408,7 +409,7 @@ impl DiffLogicCATrainer {
             })
             .collect();
 
-        loss /= output.len() as f64;
+        loss /= output.len() as Float;
 
         // Backward pass through update module
         let update_gradients =
@@ -443,10 +444,10 @@ impl DiffLogicCATrainer {
     /// Compute gradients w.r.t. perception output for backprop through update
     fn compute_perception_output_gradients(
         &self,
-        perception_output: &[f64],
-        update_activations: &[Vec<f64>],
-        output_gradients: &[f64],
-    ) -> Vec<f64> {
+        perception_output: &[Float],
+        update_activations: &[Vec<Float>],
+        output_gradients: &[Float],
+    ) -> Vec<Float> {
         let num_layers = self.model.update.layers.len();
         let mut output_grads = output_gradients.to_vec();
 
@@ -454,7 +455,7 @@ impl DiffLogicCATrainer {
         for layer_idx in (0..num_layers).rev() {
             let layer = &self.model.update.layers[layer_idx];
 
-            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+            let layer_inputs: Vec<Float> = if layer_idx == 0 {
                 perception_output.to_vec()
             } else {
                 update_activations[layer_idx - 1].clone()
@@ -486,10 +487,10 @@ impl DiffLogicCATrainer {
     }
 
     /// Update perception module weights
-    fn update_perception_weights(&mut self, gradients: &[Vec<Vec<Vec<[f64; 16]>>>]) {
+    fn update_perception_weights(&mut self, gradients: &[Vec<Vec<Vec<[Float; 16]>>>]) {
         for (k, kernel_grads) in gradients.iter().enumerate() {
             let num_layers = self.model.perception.kernels[k].layers.len();
-            let mut accumulated: Vec<Vec<[f64; 16]>> = Vec::with_capacity(num_layers);
+            let mut accumulated: Vec<Vec<[Float; 16]>> = Vec::with_capacity(num_layers);
 
             for layer_idx in 0..num_layers {
                 let num_gates = self.model.perception.kernels[k].layers[layer_idx].num_gates();
@@ -506,7 +507,7 @@ impl DiffLogicCATrainer {
                 // Average over channels
                 for gate_grad in &mut layer_grads {
                     for v in gate_grad.iter_mut() {
-                        *v /= self.model.perception.channels as f64;
+                        *v /= self.model.perception.channels as Float;
                     }
                 }
 
@@ -535,7 +536,7 @@ impl DiffLogicCATrainer {
     }
 
     /// Update update module weights
-    fn update_update_weights(&mut self, gradients: &[Vec<[f64; 16]>]) {
+    fn update_update_weights(&mut self, gradients: &[Vec<[Float; 16]>]) {
         for (layer_idx, layer_grads) in gradients.iter().enumerate() {
             for (gate_idx, gate_grad) in layer_grads.iter().enumerate() {
                 let mut clipped = *gate_grad;
@@ -559,13 +560,13 @@ pub struct UpdateTrainer {
     pub module: UpdateModule,
     /// One optimizer per gate: [layer][gate]
     optimizers: Vec<Vec<AdamW>>,
-    pub learning_rate: f64,
+    pub learning_rate: Float,
     pub iteration: usize,
 }
 
 impl UpdateTrainer {
     /// Create a new update trainer
-    pub fn new(module: UpdateModule, learning_rate: f64) -> Self {
+    pub fn new(module: UpdateModule, learning_rate: Float) -> Self {
         let optimizers: Vec<Vec<AdamW>> = module
             .layers
             .iter()
@@ -587,14 +588,14 @@ impl UpdateTrainer {
     /// Train on a single example
     ///
     /// Returns the loss for this example
-    pub fn train_step(&mut self, inputs: &[f64], target: &[f64]) -> f64 {
+    pub fn train_step(&mut self, inputs: &[Float], target: &[Float]) -> Float {
         // Forward pass
         let activations = self.module.forward_soft(inputs);
         let output = activations.last().cloned().unwrap_or_default();
 
         // Compute loss (MSE)
         let mut loss = 0.0;
-        let output_gradients: Vec<f64> = output
+        let output_gradients: Vec<Float> = output
             .iter()
             .zip(target.iter())
             .map(|(&o, &t)| {
@@ -604,7 +605,7 @@ impl UpdateTrainer {
             })
             .collect();
 
-        loss /= output.len() as f64;
+        loss /= output.len() as Float;
 
         // Backward pass
         let gradients = self.module.compute_gradients(inputs, &activations, &output_gradients);
@@ -724,7 +725,7 @@ mod tests {
         // Architecture: 8→4→2→1 (each layer reduces by at most half)
         let module = UpdateModule::new(&[8, 4, 2, 1]);
 
-        let inputs: Vec<f64> = (0..8).map(|i| (i as f64) / 10.0 + 0.1).collect();
+        let inputs: Vec<Float> = (0..8).map(|i| (i as Float) / 10.0 + 0.1).collect();
         let target = 0.7;
         let epsilon = 1e-5;
 
@@ -760,7 +761,7 @@ mod tests {
         let module = UpdateModule::new(&[8, 8, 4, 2, 1]);
         let mut trainer = UpdateTrainer::new(module, 0.05);
 
-        let inputs: Vec<f64> = (0..8).map(|i| (i as f64) / 10.0).collect();
+        let inputs: Vec<Float> = (0..8).map(|i| (i as Float) / 10.0).collect();
         let target = vec![0.8];
 
         let initial_loss = trainer.train_step(&inputs, &target);
@@ -904,7 +905,7 @@ mod tests {
 
         for _ in 0..100 {
             // Random perception output
-            let inputs: Vec<f64> = (0..17).map(|i| (i as f64 % 2.0) * 0.7 + 0.1).collect();
+            let inputs: Vec<Float> = (0..17).map(|i| (i as Float % 2.0) * 0.7 + 0.1).collect();
             let output = module.output_soft(&inputs);
 
             assert_eq!(output.len(), 1);
@@ -951,7 +952,7 @@ mod tests {
         let module = UpdateModule::new(&[8, 4, 2, 1]);
         
         // Inputs close to 0.5 (like in mid-training)
-        let inputs: Vec<f64> = vec![0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+        let inputs: Vec<Float> = vec![0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
         let target = 1.0;  // Want high output
         
         let activations = module.forward_soft(&inputs);
@@ -965,8 +966,8 @@ mod tests {
         let gradients = module.compute_gradients(&inputs, &activations, &output_grad);
         
         // Check gradient magnitudes
-        let mut max_grad = 0.0f64;
-        let mut sum_abs_grad = 0.0f64;
+        let mut max_grad: Float = 0.0;
+        let mut sum_abs_grad: Float = 0.0;
         let mut num_grads = 0;
         
         for layer in &gradients {
@@ -978,7 +979,7 @@ mod tests {
                 }
             }
         }
-        let avg_grad = sum_abs_grad / num_grads as f64;
+        let avg_grad = sum_abs_grad / num_grads as Float;
         
         println!("Gradient stats: max={:.6}, avg={:.6}, total grads={}", max_grad, avg_grad, num_grads);
         

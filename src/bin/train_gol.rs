@@ -15,6 +15,7 @@
 use logicars::{
     ConnectionType, DiffLogicCA, DiffLogicCATrainer, NGrid, NNeighborhood,
     PerceptionModule, UpdateModule,
+    Float,
 };
 
 /// Game of Life truth table - all 512 neighborhood configurations
@@ -206,7 +207,7 @@ fn main() {
 }
 
 /// Evaluate hard accuracy on all 512 configurations
-fn evaluate_accuracy(model: &DiffLogicCA, truth_table: &GolTruthTable) -> f64 {
+fn evaluate_accuracy(model: &DiffLogicCA, truth_table: &GolTruthTable) -> Float {
     let mut correct = 0;
 
     for idx in 0..512 {
@@ -220,11 +221,11 @@ fn evaluate_accuracy(model: &DiffLogicCA, truth_table: &GolTruthTable) -> f64 {
         }
     }
 
-    correct as f64 / 512.0
+    correct as Float / 512.0
 }
 
 /// Compute hard loss (MSE on argmax outputs) for all 512 configurations
-fn compute_hard_loss(model: &DiffLogicCA, truth_table: &GolTruthTable) -> f64 {
+fn compute_hard_loss(model: &DiffLogicCA, truth_table: &GolTruthTable) -> Float {
     let mut total_loss = 0.0;
 
     for idx in 0..512 {

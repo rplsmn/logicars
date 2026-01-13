@@ -19,9 +19,9 @@
 
 use logicars::{
     compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
-    create_random_seed, create_small_checkerboard_model, HardCircuit, SimpleRng, TrainingConfig,
-    TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS, CHECKERBOARD_CHANNELS,
-    CHECKERBOARD_SQUARE_SIZE,
+    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, SimpleRng,
+    TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
+    CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -100,10 +100,7 @@ fn main() {
     println!("  Epochs: {}", epochs);
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
-    println!(
-        "  Batch size: {} (async uses single samples)",
-        config.batch_size
-    );
+    println!("  Batch size: {}", config.batch_size);
     if let Some(ref log_path) = log_file {
         println!("  Log file: {}", log_path);
     }
@@ -170,13 +167,13 @@ fn main() {
         training_loop.config.fire_rate * 100.0
     );
 
-    let mut prev_loss: Option<f64> = None;
-    let mut prev_acc: Option<f64> = None;
+    let mut prev_loss: Option<Float> = None;
+    let mut prev_acc: Option<Float> = None;
     let mut current_lr = training_loop.config.learning_rate;
     let mut cooldown_triggered = false;
     let mut cooldown_epoch: Option<usize> = None;
     let mut early_stop_counter = 0;
-    let early_stop_patience = 5; // Number of evals with perfect acc/loss before stopping
+    let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
     let mut finalized = false;
 
     for epoch in 0..epochs {
@@ -286,7 +283,7 @@ fn main() {
         let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
         total_acc += compute_checkerboard_accuracy(&output, &target);
     }
-    let train_size_acc = total_acc / num_eval as f64;
+    let train_size_acc = total_acc / num_eval as Float;
 
     println!(
         "Training size ({}×{}): {:.2}% accuracy",

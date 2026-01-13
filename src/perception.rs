@@ -10,6 +10,7 @@
 //! - Layers 2+: "unique" connections (information mixing)
 //! - Output: [center_cell (C bits), kernel_outputs]
 
+use crate::Float;
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
 use crate::gates::{BinaryOp, ProbabilisticGate};
@@ -156,7 +157,7 @@ impl GateLayer {
     }
 
     /// Forward pass in soft mode
-    pub fn forward_soft(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn forward_soft(&self, inputs: &[Float]) -> Vec<Float> {
         self.gates
             .iter()
             .enumerate()
@@ -169,7 +170,7 @@ impl GateLayer {
     }
 
     /// Forward pass in hard mode
-    pub fn forward_hard(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn forward_hard(&self, inputs: &[Float]) -> Vec<Float> {
         self.gates
             .iter()
             .enumerate()
@@ -279,7 +280,7 @@ impl PerceptionKernel {
 
     /// Forward pass in soft mode
     /// Returns all layer activations for gradient computation
-    pub fn forward_soft(&self, inputs: &[f64]) -> Vec<Vec<f64>> {
+    pub fn forward_soft(&self, inputs: &[Float]) -> Vec<Vec<Float>> {
         assert_eq!(
             inputs.len(),
             self.input_size,
@@ -300,7 +301,7 @@ impl PerceptionKernel {
     }
 
     /// Forward pass in hard mode
-    pub fn forward_hard(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn forward_hard(&self, inputs: &[Float]) -> Vec<Float> {
         let mut current = inputs.to_vec();
 
         for layer in &self.layers {
@@ -311,7 +312,7 @@ impl PerceptionKernel {
     }
 
     /// Get final output from soft forward pass
-    pub fn output_soft(&self, inputs: &[f64]) -> Vec<f64> {
+    pub fn output_soft(&self, inputs: &[Float]) -> Vec<Float> {
         let activations = self.forward_soft(inputs);
         activations.last().cloned().unwrap_or_default()
     }
@@ -403,23 +404,23 @@ impl PerceptionModule {
     /// = [center, then for each channel c, for each output_bit s, for each kernel k]
     ///
     /// Returns (output, all_kernel_activations) for gradient computation
-    pub fn forward_soft(&self, neighborhood: &NNeighborhood) -> (Vec<f64>, Vec<Vec<Vec<Vec<f64>>>>) {
+    pub fn forward_soft(&self, neighborhood: &NNeighborhood) -> (Vec<Float>, Vec<Vec<Vec<Vec<Float>>>>) {
         assert_eq!(neighborhood.channels, self.channels);
 
         let kernel_output_size = self.kernels[0].output_size();
         
         // First, compute all kernel outputs and store activations
-        // kernel_outputs[k][c] = Vec<f64> of size kernel_output_size
-        let mut kernel_outputs: Vec<Vec<Vec<f64>>> = 
+        // kernel_outputs[k][c] = Vec<Float> of size kernel_output_size
+        let mut kernel_outputs: Vec<Vec<Vec<Float>>> = 
             vec![vec![Vec::new(); self.channels]; self.num_kernels];
         
         // Store activations: [kernel_idx][channel_idx][layer_idx][values]
-        let mut all_activations: Vec<Vec<Vec<Vec<f64>>>> =
+        let mut all_activations: Vec<Vec<Vec<Vec<Float>>>> =
             vec![Vec::with_capacity(self.channels); self.num_kernels];
 
         // Run all kernels on all channels
         for c in 0..self.channels {
-            let channel_inputs: Vec<f64> = (0..9)
+            let channel_inputs: Vec<Float> = (0..9)
                 .map(|pos| neighborhood.get(pos, c))
                 .collect();
 
@@ -453,18 +454,18 @@ impl PerceptionModule {
 
     /// Forward pass in hard mode
     /// Output ordering matches reference: rearrange(x, 'k c s -> (c s k)')
-    pub fn forward_hard(&self, neighborhood: &NNeighborhood) -> Vec<f64> {
+    pub fn forward_hard(&self, neighborhood: &NNeighborhood) -> Vec<Float> {
         assert_eq!(neighborhood.channels, self.channels);
 
         let kernel_output_size = self.kernels[0].output_size();
         
         // First, compute all kernel outputs
-        // kernel_outputs[k][c] = Vec<f64> of size kernel_output_size
-        let mut kernel_outputs: Vec<Vec<Vec<f64>>> = 
+        // kernel_outputs[k][c] = Vec<Float> of size kernel_output_size
+        let mut kernel_outputs: Vec<Vec<Vec<Float>>> = 
             vec![vec![Vec::new(); self.channels]; self.num_kernels];
 
         for c in 0..self.channels {
-            let channel_inputs: Vec<f64> = (0..9)
+            let channel_inputs: Vec<Float> = (0..9)
                 .map(|pos| neighborhood.get(pos, c))
                 .collect();
 
@@ -501,11 +502,11 @@ impl PerceptionModule {
     pub fn compute_gradients(
         &self,
         neighborhood: &NNeighborhood,
-        all_activations: &[Vec<Vec<Vec<f64>>>],
-        output_gradients: &[f64],
-    ) -> Vec<Vec<Vec<Vec<[f64; 16]>>>> {
+        all_activations: &[Vec<Vec<Vec<Float>>>],
+        output_gradients: &[Float],
+    ) -> Vec<Vec<Vec<Vec<[Float; 16]>>>> {
         // Gradient structure: [kernel][channel][layer][gate][16 logits]
-        let mut all_gradients: Vec<Vec<Vec<Vec<[f64; 16]>>>> = 
+        let mut all_gradients: Vec<Vec<Vec<Vec<[Float; 16]>>>> = 
             vec![Vec::new(); self.num_kernels];
 
         let kernel_output_size = self.kernels[0].output_size();
@@ -514,8 +515,8 @@ impl PerceptionModule {
         // output_gradients layout after center: [c0_s0_k0, c0_s0_k1, ..., c0_s1_k0, ...]
         // We need to extract gradients for kernel k, channel c as [s0, s1, ...]
         
-        // Build kernel_output_grads[k][c] = Vec<f64> of size kernel_output_size
-        let mut kernel_output_grads: Vec<Vec<Vec<f64>>> = 
+        // Build kernel_output_grads[k][c] = Vec<Float> of size kernel_output_size
+        let mut kernel_output_grads: Vec<Vec<Vec<Float>>> = 
             vec![vec![vec![0.0; kernel_output_size]; self.channels]; self.num_kernels];
         
         let mut grad_idx = self.channels; // Skip center cell gradients
@@ -530,10 +531,10 @@ impl PerceptionModule {
 
         // Now compute gradients for each kernel and channel
         for (k, kernel) in self.kernels.iter().enumerate() {
-            let mut kernel_grads: Vec<Vec<Vec<[f64; 16]>>> = Vec::new();
+            let mut kernel_grads: Vec<Vec<Vec<[Float; 16]>>> = Vec::new();
 
             for c in 0..self.channels {
-                let channel_inputs: Vec<f64> = (0..9)
+                let channel_inputs: Vec<Float> = (0..9)
                     .map(|pos| neighborhood.get(pos, c))
                     .collect();
 
@@ -560,12 +561,12 @@ impl PerceptionModule {
     fn compute_kernel_gradients(
         &self,
         kernel: &PerceptionKernel,
-        inputs: &[f64],
-        activations: &[Vec<f64>],
-        output_gradients: &[f64],
-    ) -> Vec<Vec<[f64; 16]>> {
+        inputs: &[Float],
+        activations: &[Vec<Float>],
+        output_gradients: &[Float],
+    ) -> Vec<Vec<[Float; 16]>> {
         let num_layers = kernel.layers.len();
-        let mut all_gradients: Vec<Vec<[f64; 16]>> = Vec::with_capacity(num_layers);
+        let mut all_gradients: Vec<Vec<[Float; 16]>> = Vec::with_capacity(num_layers);
 
         // Initialize gradient storage
         for layer in &kernel.layers {
@@ -580,7 +581,7 @@ impl PerceptionModule {
             let layer = &kernel.layers[layer_idx];
 
             // Get inputs to this layer
-            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+            let layer_inputs: Vec<Float> = if layer_idx == 0 {
                 inputs.to_vec()
             } else {
                 activations[layer_idx - 1].clone()
@@ -635,7 +636,7 @@ impl PerceptionModule {
     }
 
     /// Compute gradients of gate output w.r.t. inputs a and b
-    fn compute_gate_input_gradients(&self, gate: &ProbabilisticGate, a: f64, b: f64) -> (f64, f64) {
+    fn compute_gate_input_gradients(&self, gate: &ProbabilisticGate, a: Float, b: Float) -> (Float, Float) {
         let probs = gate.probabilities();
         let mut da = 0.0;
         let mut db = 0.0;
@@ -655,9 +656,9 @@ impl PerceptionModule {
     pub fn compute_input_gradients(
         &self,
         neighborhood: &NNeighborhood,
-        all_activations: &[Vec<Vec<Vec<f64>>>],
-        output_gradients: &[f64],
-    ) -> Vec<f64> {
+        all_activations: &[Vec<Vec<Vec<Float>>>],
+        output_gradients: &[Float],
+    ) -> Vec<Float> {
         // Initialize input gradients: 9 positions × channels
         let mut input_grads = vec![0.0; 9 * self.channels];
 
@@ -673,8 +674,8 @@ impl PerceptionModule {
         // Reconstruct per-kernel per-channel gradients from (c s k) ordering
         let kernel_output_size = self.kernels[0].output_size();
         
-        // Build kernel_output_grads[k][c] = Vec<f64> of size kernel_output_size
-        let mut kernel_output_grads: Vec<Vec<Vec<f64>>> = 
+        // Build kernel_output_grads[k][c] = Vec<Float> of size kernel_output_size
+        let mut kernel_output_grads: Vec<Vec<Vec<Float>>> = 
             vec![vec![vec![0.0; kernel_output_size]; self.channels]; self.num_kernels];
         
         let mut grad_idx = self.channels; // Skip center cell gradients
@@ -690,7 +691,7 @@ impl PerceptionModule {
         // Process each kernel's contribution to input gradients
         for (k, kernel) in self.kernels.iter().enumerate() {
             for c in 0..self.channels {
-                let channel_inputs: Vec<f64> = (0..9)
+                let channel_inputs: Vec<Float> = (0..9)
                     .map(|pos| neighborhood.get(pos, c))
                     .collect();
 
@@ -719,10 +720,10 @@ impl PerceptionModule {
     fn compute_kernel_input_gradients(
         &self,
         kernel: &PerceptionKernel,
-        inputs: &[f64],
-        activations: &[Vec<f64>],
-        output_gradients: &[f64],
-    ) -> Vec<f64> {
+        inputs: &[Float],
+        activations: &[Vec<Float>],
+        output_gradients: &[Float],
+    ) -> Vec<Float> {
         let num_layers = kernel.layers.len();
 
         // Start with output gradients
@@ -733,7 +734,7 @@ impl PerceptionModule {
             let layer = &kernel.layers[layer_idx];
 
             // Get inputs to this layer
-            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+            let layer_inputs: Vec<Float> = if layer_idx == 0 {
                 inputs.to_vec()
             } else {
                 activations[layer_idx - 1].clone()
@@ -769,7 +770,7 @@ impl PerceptionModule {
 }
 
 /// Compute gradients of operation output w.r.t. its inputs
-fn op_input_gradients(op: BinaryOp, a: f64, b: f64) -> (f64, f64) {
+fn op_input_gradients(op: BinaryOp, a: Float, b: Float) -> (Float, Float) {
     match op {
         BinaryOp::False => (0.0, 0.0),
         BinaryOp::And => (b, a),
@@ -795,13 +796,13 @@ pub struct PerceptionTrainer {
     pub module: PerceptionModule,
     /// One optimizer per gate: [kernel][layer][gate]
     optimizers: Vec<Vec<Vec<AdamW>>>,
-    pub learning_rate: f64,
+    pub learning_rate: Float,
     pub iteration: usize,
 }
 
 impl PerceptionTrainer {
     /// Create a new perception trainer
-    pub fn new(module: PerceptionModule, learning_rate: f64) -> Self {
+    pub fn new(module: PerceptionModule, learning_rate: Float) -> Self {
         let optimizers: Vec<Vec<Vec<AdamW>>> = module
             .kernels
             .iter()
@@ -832,14 +833,14 @@ impl PerceptionTrainer {
     pub fn train_step(
         &mut self,
         neighborhood: &NNeighborhood,
-        target: &[f64],
-    ) -> f64 {
+        target: &[Float],
+    ) -> Float {
         // Forward pass
         let (output, activations) = self.module.forward_soft(neighborhood);
 
         // Compute loss (MSE)
         let mut loss = 0.0;
-        let output_gradients: Vec<f64> = output
+        let output_gradients: Vec<Float> = output
             .iter()
             .zip(target.iter())
             .map(|(&o, &t)| {
@@ -849,7 +850,7 @@ impl PerceptionTrainer {
             })
             .collect();
 
-        loss /= output.len() as f64;
+        loss /= output.len() as Float;
 
         // Backward pass
         let gradients = self.module.compute_gradients(neighborhood, &activations, &output_gradients);
@@ -859,7 +860,7 @@ impl PerceptionTrainer {
         for (k, kernel_grads) in gradients.iter().enumerate() {
             // Accumulate gradients across channels
             let num_layers = self.module.kernels[k].layers.len();
-            let mut accumulated: Vec<Vec<[f64; 16]>> = Vec::with_capacity(num_layers);
+            let mut accumulated: Vec<Vec<[Float; 16]>> = Vec::with_capacity(num_layers);
 
             for layer_idx in 0..num_layers {
                 let num_gates = self.module.kernels[k].layers[layer_idx].num_gates();
@@ -876,7 +877,7 @@ impl PerceptionTrainer {
                 // Average over channels
                 for gate_grad in &mut layer_grads {
                     for v in gate_grad.iter_mut() {
-                        *v /= self.module.channels as f64;
+                        *v /= self.module.channels as Float;
                     }
                 }
 
@@ -1159,19 +1160,19 @@ mod tests {
         let center_size = channels;
         
         // Get outputs for channel 0, output_bit 0, all kernels (should be similar)
-        let c0_s0: Vec<f64> = (0..num_kernels)
+        let c0_s0: Vec<Float> = (0..num_kernels)
             .map(|k| output[center_size + 0 * kernel_output_size * num_kernels + 0 * num_kernels + k])
             .collect();
             
         // Get outputs for channel 1, output_bit 0, all kernels
-        let c1_s0: Vec<f64> = (0..num_kernels)
+        let c1_s0: Vec<Float> = (0..num_kernels)
             .map(|k| output[center_size + 1 * kernel_output_size * num_kernels + 0 * num_kernels + k])
             .collect();
         
         // Outputs from channel 0 (all-zero input) and channel 1 (all-one input) 
         // should be meaningfully different due to different inputs
-        let c0_mean: f64 = c0_s0.iter().sum::<f64>() / c0_s0.len() as f64;
-        let c1_mean: f64 = c1_s0.iter().sum::<f64>() / c1_s0.len() as f64;
+        let c0_mean: Float = c0_s0.iter().sum::<Float>() / c0_s0.len() as Float;
+        let c1_mean: Float = c1_s0.iter().sum::<Float>() / c1_s0.len() as Float;
         
         // The difference confirms inputs are reaching the right kernel/channel slots
         // Pass-through gates (A) with all-0 input → ~0, with all-1 input → ~1
