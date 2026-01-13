@@ -149,6 +149,11 @@ fn main() {
     let mut prev_loss: Option<f64> = None;
     let mut prev_acc: Option<f64> = None;
     let mut current_lr = training_loop.config.learning_rate;
+    let mut cooldown_triggered = false;
+    let mut cooldown_epoch: Option<usize> = None;
+    let mut early_stop_counter = 0;
+    let early_stop_patience = 5; // Number of evals with perfect acc/loss before stopping
+    let mut finalized = false;
 
     for epoch in 0..epochs {
         // Create random seed for this epoch
@@ -173,16 +178,27 @@ fn main() {
             let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
             let accuracy = compute_checkerboard_accuracy(&output, &target);
 
-            // LR schedule: adjust based on loss/accuracy trend
-            if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
-                if soft_loss > prev_l && accuracy < prev_a {
-                    // Bad jump: decrease LR
-                    current_lr *= 0.95;
-                    training_loop.set_learning_rate(current_lr);
-                } else if soft_loss < prev_l && accuracy > prev_a {
-                    // Good direction: increase LR
-                    current_lr *= 1.05;
-                    training_loop.set_learning_rate(current_lr);
+            // Detect first time reaching 100% accuracy
+            if !cooldown_triggered && accuracy >= 1.0 {
+                cooldown_triggered = true;
+                cooldown_epoch = Some(epoch);
+                current_lr *= 0.2; // Cool off LR sharply for fine-tuning
+                training_loop.set_learning_rate(current_lr);
+                println!("[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}", epoch, current_lr);
+            }
+
+            // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
+            if !cooldown_triggered {
+                if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
+                    if soft_loss > prev_l && accuracy < prev_a {
+                        // Bad jump: decrease LR
+                        current_lr *= 0.95;
+                        training_loop.set_learning_rate(current_lr);
+                    } else if soft_loss < prev_l && accuracy > prev_a {
+                        // Good direction: increase LR
+                        current_lr *= 1.05;
+                        training_loop.set_learning_rate(current_lr);
+                    }
                 }
             }
             prev_loss = Some(soft_loss);
@@ -190,6 +206,18 @@ fn main() {
 
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
+            }
+
+            // Early stopping: if hard_loss == 0 and acc == 1.0 for N evals, finalize
+            if accuracy >= 1.0 && hard_loss == 0.0 {
+                early_stop_counter += 1;
+                if early_stop_counter >= early_stop_patience && !finalized {
+                    println!("[EARLY STOP] Finalized: hard_loss=0 and acc=100% for {} evals (epoch {})", early_stop_patience, epoch);
+                    finalized = true;
+                    break;
+                }
+            } else {
+                early_stop_counter = 0;
             }
 
             let elapsed = start.elapsed().as_secs_f32();
