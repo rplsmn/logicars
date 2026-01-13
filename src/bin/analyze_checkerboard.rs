@@ -8,7 +8,7 @@
 //! - Active vs pass-through ratio
 //! - Optional CSV export with --csv=FILE
 
-use logicars::{BinaryOp, HardCircuit};
+use logicars::{BinaryOp, Float, HardCircuit};
 use std::env;
 
 fn main() {
@@ -46,7 +46,7 @@ fn main() {
     let total_gates = circuit.total_gate_count();
     let active_gates = circuit.active_gate_count();
     let pass_through = total_gates - active_gates;
-    let active_pct = 100.0 * active_gates as f64 / total_gates as f64;
+    let active_pct = 100.0 * active_gates as Float / total_gates as Float;
 
     println!("\n=== Model Statistics ===");
     println!("  Channels: {}", circuit.channels);
@@ -64,7 +64,7 @@ fn main() {
 
     for (i, &count) in dist.iter().enumerate() {
         let op = BinaryOp::ALL[i];
-        let pct = 100.0 * count as f64 / total_gates as f64;
+        let pct = 100.0 * count as Float / total_gates as Float;
         let marker = if i == 3 || i == 5 { " (pass)" } else { "" };
         println!("{:>12?} {:>8} {:>7.1}%{}", op, count, pct, marker);
     }
@@ -90,7 +90,7 @@ fn main() {
         circuit.perception.kernels.len(),
         perc_total,
         perc_active,
-        100.0 * perc_active as f64 / perc_total as f64
+        100.0 * perc_active as Float / perc_total as Float
     );
 
     println!("\n=== Update Module ===");
@@ -101,7 +101,7 @@ fn main() {
         circuit.update.layers.len(),
         upd_total,
         upd_active,
-        100.0 * upd_active as f64 / upd_total as f64
+        100.0 * upd_active as Float / upd_total as Float
     );
 
     // CSV export
@@ -116,7 +116,7 @@ fn main() {
         writeln!(f, "operation,index,count,percent").unwrap();
         for (i, &count) in dist.iter().enumerate() {
             let op = BinaryOp::ALL[i];
-            let pct = 100.0 * count as f64 / total_gates as f64;
+            let pct = 100.0 * count as Float / total_gates as Float;
             writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
         }
         
@@ -128,7 +128,7 @@ fn main() {
         let perc_total = circuit.perception.total_gate_count();
         for (i, &count) in perc_dist.iter().enumerate() {
             let op = BinaryOp::ALL[i];
-            let pct = 100.0 * count as f64 / perc_total as f64;
+            let pct = 100.0 * count as Float / perc_total as Float;
             writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
         }
         
@@ -140,7 +140,7 @@ fn main() {
         let upd_total = circuit.update.total_gate_count();
         for (i, &count) in upd_dist.iter().enumerate() {
             let op = BinaryOp::ALL[i];
-            let pct = 100.0 * count as f64 / upd_total as f64;
+            let pct = 100.0 * count as Float / upd_total as Float;
             writeln!(f, "{:?},{},{},{:.2}", op, i, count, pct).unwrap();
         }
         

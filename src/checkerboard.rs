@@ -11,6 +11,7 @@
 //!
 //! Reference: CHECKERBOARD_SYNC_HYPERPARAMS from difflogic_ca.py
 
+use crate::Float;
 use crate::grid::{BoundaryCondition, NGrid};
 use crate::perception::{ConnectionType, PerceptionModule};
 use crate::training::SimpleRng;
@@ -199,14 +200,14 @@ pub fn create_checkerboard_async_model() -> DiffLogicCA {
 ///
 /// # Returns
 /// MSE loss over channel 0 cells
-pub fn compute_checkerboard_loss(prediction: &NGrid, target: &NGrid) -> f64 {
+pub fn compute_checkerboard_loss(prediction: &NGrid, target: &NGrid) -> Float {
     assert_eq!(prediction.width, target.width);
     assert_eq!(prediction.height, target.height);
     assert!(prediction.channels >= 1);
     assert!(target.channels >= 1);
 
     let mut loss = 0.0;
-    let num_cells = (prediction.width * prediction.height) as f64;
+    let num_cells = (prediction.width * prediction.height) as Float;
 
     for y in 0..prediction.height {
         for x in 0..prediction.width {
@@ -221,7 +222,7 @@ pub fn compute_checkerboard_loss(prediction: &NGrid, target: &NGrid) -> f64 {
 }
 
 /// Compute hard accuracy on channel 0.
-pub fn compute_checkerboard_accuracy(prediction: &NGrid, target: &NGrid) -> f64 {
+pub fn compute_checkerboard_accuracy(prediction: &NGrid, target: &NGrid) -> Float {
     assert_eq!(prediction.width, target.width);
     assert_eq!(prediction.height, target.height);
 
@@ -230,15 +231,15 @@ pub fn compute_checkerboard_accuracy(prediction: &NGrid, target: &NGrid) -> f64 
 
     for y in 0..prediction.height {
         for x in 0..prediction.width {
-            let pred: f64 = if prediction.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
-            let tgt: f64 = if target.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
+            let pred: Float = if prediction.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
+            let tgt: Float = if target.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
             if (pred - tgt).abs() < 0.01 {
                 correct += 1;
             }
         }
     }
 
-    correct as f64 / num_cells as f64
+    correct as Float / num_cells as Float
 }
 
 #[cfg(test)]
@@ -306,7 +307,7 @@ mod tests {
         }
         
         // Should be roughly 50% (with some variance)
-        let ratio = ones as f64 / total as f64;
+        let ratio = ones as Float / total as Float;
         assert!(ratio > 0.4 && ratio < 0.6, "Expected ~50% ones, got {:.2}%", ratio * 100.0);
     }
 

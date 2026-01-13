@@ -3,6 +3,7 @@
 //! Implements one probabilistic logic gate with 16 binary operations.
 //! Train to learn AND, OR, XOR individually with >99% accuracy.
 
+use crate::Float;
 use parking_lot::RwLock;
 use rand::Rng;
 
@@ -40,7 +41,7 @@ impl BinaryOp {
 
     /// Execute with floating point inputs/outputs (for soft computation)
     #[inline]
-    pub fn execute_soft(self, a: f64, b: f64) -> f64 {
+    pub fn execute_soft(self, a: Float, b: Float) -> Float {
         // For soft execution, we treat booleans as probabilities
         // and compute the expected output based on the truth table
         let p_not_a = 1.0 - a;
@@ -95,9 +96,9 @@ impl BinaryOp {
 pub struct ProbabilisticGate {
     /// Logits for each of the 16 operations (unnormalized log probabilities)
     /// Index 3 (pass-through) should be initialized to 10.0 for stability
-    pub logits: [f64; 16],
+    pub logits: [Float; 16],
     /// Cached softmax probabilities (computed lazily, invalidated when logits change)
-    cached_probs: RwLock<Option<[f64; 16]>>,
+    cached_probs: RwLock<Option<[Float; 16]>>,
 }
 
 impl std::fmt::Debug for ProbabilisticGate {
@@ -136,11 +137,11 @@ impl ProbabilisticGate {
     pub fn new_random<R: Rng>(rng: &mut R) -> Self {
         let mut logits = [0.0; 16];
         for i in 0..16 {
-            logits[i] = rng.random_range(-1.0..1.0);
+            logits[i] = rng.random_range(-1.0..1.0) as Float;
         }
         // Bias towards pass-through (index 3) for stability
         logits[3] += 5.0;
-        Self { 
+        Self {
             logits,
             cached_probs: RwLock::new(None),
         }
@@ -153,7 +154,7 @@ impl ProbabilisticGate {
     }
 
     /// Compute softmax probabilities from logits (cached)
-    pub fn probabilities(&self) -> [f64; 16] {
+    pub fn probabilities(&self) -> [Float; 16] {
         // Fast path: check cache with read lock
         {
             let cache = self.cached_probs.read();
@@ -169,10 +170,10 @@ impl ProbabilisticGate {
     }
 
     /// Internal: compute softmax without caching
-    fn compute_probabilities(&self) -> [f64; 16] {
+    fn compute_probabilities(&self) -> [Float; 16] {
         // Numerically stable softmax
-        let max_logit = self.logits.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-        let mut exp_sum = 0.0;
+        let max_logit = self.logits.iter().fold(Float::NEG_INFINITY, |a, &b| a.max(b));
+        let mut exp_sum: Float = 0.0;
         let mut probs = [0.0; 16];
 
         for i in 0..16 {
@@ -189,9 +190,9 @@ impl ProbabilisticGate {
     }
 
     /// Soft execution: weighted sum of all gate outputs
-    pub fn execute_soft(&self, a: f64, b: f64) -> f64 {
+    pub fn execute_soft(&self, a: Float, b: Float) -> Float {
         let probs = self.probabilities();
-        let mut output = 0.0;
+        let mut output: Float = 0.0;
 
         for (i, &op) in BinaryOp::ALL.iter().enumerate() {
             output += probs[i] * op.execute_soft(a, b);
@@ -214,7 +215,7 @@ impl ProbabilisticGate {
     }
 
     /// Get the most probable operation
-    pub fn dominant_operation(&self) -> (BinaryOp, f64) {
+    pub fn dominant_operation(&self) -> (BinaryOp, Float) {
         let probs = self.probabilities();
         let (idx, &prob) = probs
             .iter()
@@ -229,7 +230,7 @@ impl ProbabilisticGate {
     ///
     /// This uses the chain rule:
     /// dL/dlogits[i] = dL/doutput * doutput/dprobs[i] * dprobs[i]/dlogits[i]
-    pub fn compute_gradients(&self, a: f64, b: f64, target: f64, output: f64) -> [f64; 16] {
+    pub fn compute_gradients(&self, a: Float, b: Float, target: Float, output: Float) -> [Float; 16] {
         let probs = self.probabilities();
         let mut gradients = [0.0; 16];
 
@@ -241,13 +242,13 @@ impl ProbabilisticGate {
             let op_output = BinaryOp::ALL[i].execute_soft(a, b);
 
             // doutput/dprobs[i] = op_output
-            let doutput_dprob_i = op_output;
+            let _doutput_dprob_i = op_output;
 
             // dprobs[i]/dlogits[j] using softmax derivative
             // = probs[i] * (delta_ij - probs[j])
             // We need dL/dlogits[i] = sum over all j of: dL/dprobs[j] * dprobs[j]/dlogits[i]
 
-            let mut dlogit_i = 0.0;
+            let mut dlogit_i: Float = 0.0;
             for j in 0..16 {
                 let op_output_j = BinaryOp::ALL[j].execute_soft(a, b);
                 let dloss_dprob_j = dloss_doutput * op_output_j;
@@ -313,11 +314,11 @@ mod tests {
         let ops = [BinaryOp::And, BinaryOp::Or, BinaryOp::Xor];
 
         for op in &ops {
-            for &a in &[0.0, 1.0] {
-                for &b in &[0.0, 1.0] {
+            for &a in &[0.0 as Float, 1.0 as Float] {
+                for &b in &[0.0 as Float, 1.0 as Float] {
                     let soft = op.execute_soft(a, b);
-                    let hard = op.execute(a != 0.0, b != 0.0) as u8 as f64;
-                    assert!((soft - hard).abs() < 1e-10,
+                    let hard = op.execute(a != 0.0, b != 0.0) as u8 as Float;
+                    assert!((soft - hard).abs() < 1e-5,
                         "Op {:?}: soft({}, {}) = {}, hard = {}", op, a, b, soft, hard);
                 }
             }
@@ -338,9 +339,9 @@ mod tests {
     fn test_probabilities_sum_to_one() {
         let gate = ProbabilisticGate::new();
         let probs = gate.probabilities();
-        let sum: f64 = probs.iter().sum();
+        let sum: Float = probs.iter().sum();
 
-        assert!((sum - 1.0).abs() < 1e-10, "Probabilities should sum to 1.0, got {}", sum);
+        assert!((sum - 1.0).abs() < 1e-5, "Probabilities should sum to 1.0, got {}", sum);
     }
 
     #[test]
@@ -352,8 +353,8 @@ mod tests {
         use rand::thread_rng;
         gate = ProbabilisticGate::new_random(&mut thread_rng());
 
-        let epsilon = 1e-5;
-        let test_cases = vec![
+        let epsilon: Float = 1e-4; // Larger epsilon for f32 precision
+        let test_cases: Vec<(Float, Float, Float)> = vec![
             (0.0, 0.0, 0.0),
             (0.0, 1.0, 1.0),
             (1.0, 0.0, 1.0),
@@ -391,12 +392,12 @@ mod tests {
                 // Numerical gradient
                 let numerical_grad = (loss_plus - loss_minus) / (2.0 * epsilon);
 
-                // Compare analytical and numerical gradients
+                // Compare analytical and numerical gradients (looser tolerance for f32)
                 assert_relative_eq!(
-                    analytical_grads[i],
-                    numerical_grad,
-                    epsilon = 1e-4,
-                    max_relative = 1e-3,
+                    analytical_grads[i] as f64,
+                    numerical_grad as f64,
+                    epsilon = 1e-2,
+                    max_relative = 5e-2,
                 );
             }
         }
@@ -420,7 +421,7 @@ mod tests {
         let expected = gate.compute_probabilities();
         for i in 0..16 {
             assert!(
-                (probs1[i] - expected[i]).abs() < 1e-15,
+                (probs1[i] - expected[i]).abs() < 1e-6,
                 "Cached prob {} differs from computed: {} vs {}",
                 i,
                 probs1[i],

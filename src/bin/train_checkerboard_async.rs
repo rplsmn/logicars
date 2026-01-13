@@ -18,14 +18,13 @@
 //!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
-    create_checkerboard, create_random_seed, create_small_checkerboard_model,
-    create_checkerboard_async_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng, HardCircuit,
-    CHECKERBOARD_CHANNELS, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
-    CHECKERBOARD_ASYNC_STEPS,
+    compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
+    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, SimpleRng,
+    TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
+    CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
 use std::fs::{File, OpenOptions};
-use std::io::{Write, BufWriter};
+use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 fn main() {
@@ -76,25 +75,32 @@ fn main() {
     };
 
     println!("Model architecture:");
-    println!("  Perception: {} gates ({} kernels)", 
-             model.perception.total_gates(), 
-             model.perception.num_kernels);
-    println!("  Update: {} gates ({} layers)", 
-             model.update.total_gates(),
-             model.update.layers.len());
+    println!(
+        "  Perception: {} gates ({} kernels)",
+        model.perception.total_gates(),
+        model.perception.num_kernels
+    );
+    println!(
+        "  Update: {} gates ({} layers)",
+        model.update.total_gates(),
+        model.update.layers.len()
+    );
     println!("  Total: {} gates\n", model.total_gates());
 
     // Create async config
     let config = TrainingConfig::checkerboard_async();
     println!("Training configuration (ASYNC mode):");
-    println!("  Grid size: {}×{}", CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE);
+    println!(
+        "  Grid size: {}×{}",
+        CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE
+    );
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
     println!("  Steps per epoch: {} (async)", config.num_steps);
     println!("  Fire rate: {:.1}%", config.fire_rate * 100.0);
     println!("  Epochs: {}", epochs);
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
-    println!("  Batch size: {} (async uses single samples)", config.batch_size);
+    println!("  Batch size: {}", config.batch_size);
     if let Some(ref log_path) = log_file {
         println!("  Log file: {}", log_path);
     }
@@ -114,9 +120,13 @@ fn main() {
         CHECKERBOARD_CHANNELS,
     );
 
-    println!("Target: {}×{} checkerboard with {}×{} squares\n",
-             CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE,
-             CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_SQUARE_SIZE);
+    println!(
+        "Target: {}×{} checkerboard with {}×{} squares\n",
+        CHECKERBOARD_ASYNC_GRID_SIZE,
+        CHECKERBOARD_ASYNC_GRID_SIZE,
+        CHECKERBOARD_SQUARE_SIZE,
+        CHECKERBOARD_SQUARE_SIZE
+    );
 
     // Training loop
     let mut best_accuracy = 0.0;
@@ -137,14 +147,34 @@ fn main() {
     if let Some(ref mut writer) = log_writer {
         writeln!(writer, "# Checkerboard Async Training Log").unwrap();
         writeln!(writer, "# Started: {:?}", std::time::SystemTime::now()).unwrap();
-        writeln!(writer, "# Model: {} gates", training_loop.model.total_gates()).unwrap();
+        writeln!(
+            writer,
+            "# Model: {} gates",
+            training_loop.model.total_gates()
+        )
+        .unwrap();
         writeln!(writer, "# Fire rate: {}", training_loop.config.fire_rate).unwrap();
-        writeln!(writer, "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s").unwrap();
+        writeln!(
+            writer,
+            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s"
+        )
+        .unwrap();
         writer.flush().unwrap();
     }
 
-    println!("Training with async updates (fire rate = {:.1}%)...\n", 
-             training_loop.config.fire_rate * 100.0);
+    println!(
+        "Training with async updates (fire rate = {:.1}%)...\n",
+        training_loop.config.fire_rate * 100.0
+    );
+
+    let mut prev_loss: Option<Float> = None;
+    let mut prev_acc: Option<Float> = None;
+    let mut current_lr = training_loop.config.learning_rate;
+    let mut cooldown_triggered = false;
+    let mut cooldown_epoch: Option<usize> = None;
+    let mut early_stop_counter = 0;
+    let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
+    let mut finalized = false;
 
     for epoch in 0..epochs {
         // Create random seed for this epoch
@@ -168,23 +198,71 @@ fn main() {
             );
             let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
             let accuracy = compute_checkerboard_accuracy(&output, &target);
-            
+
+            // Detect first time reaching 100% accuracy
+            if !cooldown_triggered && accuracy >= 1.0 {
+                cooldown_triggered = true;
+                cooldown_epoch = Some(epoch);
+                current_lr = 0.05; // Cool off LR sharply for fine-tuning
+                training_loop.set_learning_rate(current_lr);
+                println!(
+                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
+                    epoch, current_lr
+                );
+            }
+
+            // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
+            if !cooldown_triggered {
+                if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
+                    if soft_loss > prev_l && accuracy < prev_a {
+                        // Bad jump: decrease LR
+                        current_lr *= 0.95;
+                        training_loop.set_learning_rate(current_lr);
+                    } else if soft_loss < prev_l && accuracy > prev_a {
+                        // Good direction: increase LR
+                        current_lr *= 1.05;
+                        training_loop.set_learning_rate(current_lr);
+                    }
+                }
+            }
+            prev_loss = Some(soft_loss);
+            prev_acc = Some(accuracy);
+
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
 
+            // Early stopping: if hard_loss == 0 and acc == 1.0 for N evals, finalize
+            if accuracy >= 1.0 && hard_loss == 0.0 {
+                early_stop_counter += 1;
+                if early_stop_counter >= early_stop_patience && !finalized {
+                    println!(
+                        "[EARLY STOP] Finalized: hard_loss=0 and acc=100% for {} evals (epoch {})",
+                        early_stop_patience, epoch
+                    );
+                    finalized = true;
+                    break;
+                }
+            } else {
+                early_stop_counter = 0;
+            }
+
             let elapsed = start.elapsed().as_secs_f32();
-            
+
             // Print to stdout
             println!(
-                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s]",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
+                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s] LR={:.5}",
+                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed, current_lr
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
-                writeln!(writer, "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
-                         epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed).unwrap();
+                writeln!(
+                    writer,
+                    "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.5}",
+                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, current_lr
+                )
+                .unwrap();
                 writer.flush().unwrap();
             }
         }
@@ -205,21 +283,32 @@ fn main() {
         let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
         total_acc += compute_checkerboard_accuracy(&output, &target);
     }
-    let train_size_acc = total_acc / num_eval as f64;
+    let train_size_acc = total_acc / num_eval as Float;
 
-    println!("Training size ({}×{}): {:.2}% accuracy",
-             CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_GRID_SIZE, train_size_acc * 100.0);
+    println!(
+        "Training size ({}×{}): {:.2}% accuracy",
+        CHECKERBOARD_ASYNC_GRID_SIZE,
+        CHECKERBOARD_ASYNC_GRID_SIZE,
+        train_size_acc * 100.0
+    );
 
     // Test self-healing: damage the grid and see if it recovers
     println!("\n=== Self-Healing Test ===\n");
-    
+
     // Start from pattern (run until converged)
-    let mut grid = create_random_seed(CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
+    let mut grid = create_random_seed(
+        CHECKERBOARD_ASYNC_GRID_SIZE,
+        CHECKERBOARD_CHANNELS,
+        &mut rng,
+    );
     for _ in 0..100 {
         grid = training_loop.run_steps(&grid, 1);
     }
     let initial_acc = compute_checkerboard_accuracy(&grid, &target);
-    println!("Initial accuracy (before damage): {:.2}%", initial_acc * 100.0);
+    println!(
+        "Initial accuracy (before damage): {:.2}%",
+        initial_acc * 100.0
+    );
 
     // Damage: zero out center 4x4 region
     let damage_size = 4;
@@ -232,8 +321,12 @@ fn main() {
         }
     }
     let damaged_acc = compute_checkerboard_accuracy(&grid, &target);
-    println!("After damage ({}×{} center zeroed): {:.2}%", 
-             damage_size, damage_size, damaged_acc * 100.0);
+    println!(
+        "After damage ({}×{} center zeroed): {:.2}%",
+        damage_size,
+        damage_size,
+        damaged_acc * 100.0
+    );
 
     // Run recovery steps
     for step in [10, 25, 50, 100] {
@@ -242,7 +335,11 @@ fn main() {
             recovery_grid = training_loop.run_steps(&recovery_grid, 1);
         }
         let recovery_acc = compute_checkerboard_accuracy(&recovery_grid, &target);
-        println!("After {} recovery steps: {:.2}%", step, recovery_acc * 100.0);
+        println!(
+            "After {} recovery steps: {:.2}%",
+            step,
+            recovery_acc * 100.0
+        );
     }
 
     // Summary
@@ -251,7 +348,10 @@ fn main() {
     println!("  Total time: {:.1}s", total_time);
     println!("  Best accuracy: {:.2}%", best_accuracy * 100.0);
     println!("  Gates: {}", training_loop.model.total_gates());
-    println!("  Fire rate: {:.1}%", training_loop.config.fire_rate * 100.0);
+    println!(
+        "  Fire rate: {:.1}%",
+        training_loop.config.fire_rate * 100.0
+    );
 
     // Save model if requested
     if let Some(ref path) = save_path {

@@ -9,6 +9,7 @@
 //! - Serialize circuits for later use
 //! - Run inference using pure discrete logic
 
+use crate::Float;
 use crate::grid::{BoundaryCondition, NGrid};
 use crate::gates::BinaryOp;
 use crate::perception::{GateLayer, PerceptionKernel, PerceptionModule, Wires};
@@ -374,7 +375,7 @@ impl HardCircuit {
                 // Execute the circuit
                 let new_state = self.execute(&neighborhood);
 
-                // Write output (convert bool back to f64)
+                // Write output (convert bool back to Float)
                 for c in 0..self.channels {
                     output.set(x, y, c, if new_state[c] { 1.0 } else { 0.0 });
                 }

@@ -20,6 +20,7 @@ use logicars::{
     TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate, HardCircuit,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
     CHECKERBOARD_SYNC_STEPS,
+    Float,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{Write, BufWriter};
@@ -68,7 +69,7 @@ fn main() {
     let eval_interval = custom_log_interval.unwrap_or(default_log_interval);
 
     // Parse --noise=N for gradient noise (default 0.001 if --noise with no value)
-    let gradient_noise: Option<f64> = args
+    let gradient_noise: Option<Float> = args
         .iter()
         .find(|a| a.starts_with("--noise"))
         .map(|a| {
@@ -250,7 +251,7 @@ fn main() {
         let output = training_loop.run_steps(&test_input, CHECKERBOARD_SYNC_STEPS);
         total_acc += compute_checkerboard_accuracy(&output, &target);
     }
-    let train_size_acc = total_acc / num_eval as f64;
+    let train_size_acc = total_acc / num_eval as Float;
 
     println!("Training size ({}×{}): {:.2}% accuracy",
              CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE, train_size_acc * 100.0);
