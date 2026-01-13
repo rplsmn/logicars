@@ -171,7 +171,6 @@ fn main() {
     let mut prev_acc: Option<Float> = None;
     let mut current_lr = training_loop.config.learning_rate;
     let mut cooldown_triggered = false;
-    let mut cooldown_epoch: Option<usize> = None;
     let mut early_stop_counter = 0;
     let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
     let mut finalized = false;
@@ -202,13 +201,6 @@ fn main() {
             // Detect first time reaching 100% accuracy
             if !cooldown_triggered && accuracy >= 1.0 {
                 cooldown_triggered = true;
-                cooldown_epoch = Some(epoch);
-                current_lr = 0.05; // Cool off LR sharply for fine-tuning
-                training_loop.set_learning_rate(current_lr);
-                println!(
-                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
-                    epoch, current_lr
-                );
             }
 
             // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
@@ -225,6 +217,20 @@ fn main() {
                     }
                 }
             }
+
+            if cooldown_triggered {
+                if current_lr > 0.05 {
+                    current_lr = 0.05;
+                } else {
+                    current_lr *= 0.95;
+                }; // Cool off LR sharply for fine-tuning
+                println!(
+                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
+                    epoch, current_lr
+                );
+                training_loop.set_learning_rate(current_lr);
+            }
+
             prev_loss = Some(soft_loss);
             prev_acc = Some(accuracy);
 
@@ -286,61 +292,130 @@ fn main() {
     let train_size_acc = total_acc / num_eval as Float;
 
     println!(
-        "Training size ({}×{}): {:.2}% accuracy",
+        "Training size ({}×{}): {:.2}% accuracy (async inference)",
         CHECKERBOARD_ASYNC_GRID_SIZE,
         CHECKERBOARD_ASYNC_GRID_SIZE,
         train_size_acc * 100.0
     );
 
-    // Test self-healing: damage the grid and see if it recovers
-    println!("\n=== Self-Healing Test ===\n");
+    // ==========================================================================
+    // Generalization Test (64x64 board) - reference: cell 33/34 in notebook
+    // ==========================================================================
+    println!("\n=== Generalization Test (56x56) ===\n");
 
-    // Start from pattern (run until converged)
-    let mut grid = create_random_seed(
-        CHECKERBOARD_ASYNC_GRID_SIZE,
-        CHECKERBOARD_CHANNELS,
-        &mut rng,
-    );
-    for _ in 0..100 {
-        grid = training_loop.run_steps(&grid, 1);
-    }
-    let initial_acc = compute_checkerboard_accuracy(&grid, &target);
+    let large_size = 56; // Match reference exactly (56 = 14*4)
+    let large_steps = CHECKERBOARD_ASYNC_STEPS * 4; // 50 * 4 = 200
+    let large_target =
+        create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
+    let large_input = create_random_seed(large_size, CHECKERBOARD_CHANNELS, &mut rng);
+    let large_output = training_loop.run_steps(&large_input, large_steps);
+    let large_acc = compute_checkerboard_accuracy(&large_output, &large_target);
+
     println!(
-        "Initial accuracy (before damage): {:.2}%",
-        initial_acc * 100.0
+        "Large size ({}×{}, {} steps): {:.2}% accuracy (async inference)",
+        large_size,
+        large_size,
+        large_steps,
+        large_acc * 100.0
     );
 
-    // Damage: zero out center 4x4 region
-    let damage_size = 4;
-    let damage_start = (CHECKERBOARD_ASYNC_GRID_SIZE - damage_size) / 2;
-    for y in damage_start..(damage_start + damage_size) {
-        for x in damage_start..(damage_start + damage_size) {
-            for c in 0..CHECKERBOARD_CHANNELS {
-                grid.set(x, y, c, 0.0);
+    // ==========================================================================
+    // Self-Healing Test (reference: cell 33 in diffLogic_CA.ipynb)
+    // On 64x64 grid, deactivate 20x20 center for first 100 steps, then re-enable
+    // Uses async inference (run_async equivalent)
+    // ==========================================================================
+    println!("\n=== Self-Healing Test (56×56, 20×20 damage, async inference) ===\n");
+
+    let heal_size = 56; // Reference uses 14*4
+    let heal_steps = CHECKERBOARD_ASYNC_STEPS * 4; // 200 steps total
+    let damage_half = 10; // 20x20 damage area (center-10 to center+10)
+    let reactivate_step = CHECKERBOARD_ASYNC_STEPS * 2; // 100 steps (50*2)
+
+    let mut heal_grid = create_random_seed(heal_size, CHECKERBOARD_CHANNELS, &mut rng);
+    let heal_target =
+        create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
+    // Run with damage for first 100 steps, then allow healing
+    for step in 0..heal_steps {
+        heal_grid = training_loop.run_steps(&heal_grid, 1); // async inference
+
+        // Deactivate center 20x20 for first 100 steps
+        if step < reactivate_step {
+            let center = heal_size / 2;
+            for y in (center - damage_half)..(center + damage_half) {
+                for x in (center - damage_half)..(center + damage_half) {
+                    for c in 0..CHECKERBOARD_CHANNELS {
+                        heal_grid.set(x, y, c, 0.0); // BLACK (damaged)
+                    }
+                }
             }
         }
     }
-    let damaged_acc = compute_checkerboard_accuracy(&grid, &target);
+    let heal_acc = compute_checkerboard_accuracy(&heal_grid, &heal_target);
     println!(
-        "After damage ({}×{} center zeroed): {:.2}%",
-        damage_size,
-        damage_size,
-        damaged_acc * 100.0
+        "Self-healing (damage for {} steps, then {} recovery steps): {:.2}% accuracy",
+        reactivate_step,
+        heal_steps - reactivate_step,
+        heal_acc * 100.0
     );
 
-    // Run recovery steps
-    for step in [10, 25, 50, 100] {
-        let mut recovery_grid = grid.clone();
-        for _ in 0..step {
-            recovery_grid = training_loop.run_steps(&recovery_grid, 1);
+    // ==========================================================================
+    // Robustness Test (reference: cell 34 in diffLogic_CA.ipynb)
+    // Run 4000 steps with continuous random 10x10 damage
+    // ==========================================================================
+    println!("\n=== Robustness Test (4000 steps, random damage) ===\n");
+
+    let robust_size = 64;
+    let robust_steps = 4000;
+    let damage_block = 10;
+
+    let mut robust_grid = create_random_seed(robust_size, CHECKERBOARD_CHANNELS, &mut rng);
+    let robust_target =
+        create_checkerboard(robust_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
+    let mut total_err: Float = 0.0;
+    let mut err_samples = 0;
+
+    for step in 0..robust_steps {
+        robust_grid = training_loop.run_steps(&robust_grid, 1); // async inference
+
+        // Random position for damage
+        let dx = (rng.next_u64() as usize) % robust_size;
+        let dy = (rng.next_u64() as usize) % robust_size;
+
+        // Damage 10x10 block at random position
+        for y in dy..(dy + damage_block).min(robust_size) {
+            for x in dx..(dx + damage_block).min(robust_size) {
+                for c in 0..CHECKERBOARD_CHANNELS {
+                    robust_grid.set(x, y, c, 0.0); // BLACK (damaged)
+                }
+            }
         }
-        let recovery_acc = compute_checkerboard_accuracy(&recovery_grid, &target);
-        println!(
-            "After {} recovery steps: {:.2}%",
-            step,
-            recovery_acc * 100.0
-        );
+
+        // Measure error every 100 steps
+        if step % 100 == 0 {
+            let mut err: Float = 0.0;
+            for y in 0..robust_size {
+                for x in 0..robust_size {
+                    let pred = robust_grid.get(x as isize, y as isize, 0);
+                    let tgt = robust_target.get(x as isize, y as isize, 0);
+                    err += (pred - tgt).abs();
+                }
+            }
+            total_err += err;
+            err_samples += 1;
+        }
     }
+
+    let avg_err = total_err / err_samples as Float;
+    let max_err = (robust_size * robust_size) as Float;
+    println!(
+        "Robustness test: avg absolute error = {:.1} / {:.0} ({:.2}%)",
+        avg_err,
+        max_err,
+        (1.0 - avg_err / max_err) * 100.0
+    );
 
     // Summary
     let total_time = start.elapsed().as_secs_f32();
