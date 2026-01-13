@@ -299,15 +299,19 @@ fn main() {
 
     let large_size = 64; // Match reference exactly (not 56 = 14*4)
     let large_steps = CHECKERBOARD_ASYNC_STEPS * 4; // 50 * 4 = 200
-    let large_target = create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
-    
+    let large_target =
+        create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
     let large_input = create_random_seed(large_size, CHECKERBOARD_CHANNELS, &mut rng);
     let large_output = training_loop.run_steps(&large_input, large_steps);
     let large_acc = compute_checkerboard_accuracy(&large_output, &large_target);
 
     println!(
         "Large size ({}×{}, {} steps): {:.2}% accuracy (async inference)",
-        large_size, large_size, large_steps, large_acc * 100.0
+        large_size,
+        large_size,
+        large_steps,
+        large_acc * 100.0
     );
 
     // ==========================================================================
@@ -323,19 +327,20 @@ fn main() {
     let reactivate_step = CHECKERBOARD_ASYNC_STEPS * 2; // 100 steps (50*2)
 
     let mut heal_grid = create_random_seed(heal_size, CHECKERBOARD_CHANNELS, &mut rng);
-    let heal_target = create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+    let heal_target =
+        create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
 
     // Run with damage for first 100 steps, then allow healing
     for step in 0..heal_steps {
         heal_grid = training_loop.run_steps(&heal_grid, 1); // async inference
-        
+
         // Deactivate center 20x20 for first 100 steps
         if step < reactivate_step {
             let center = heal_size / 2;
             for y in (center - damage_half)..(center + damage_half) {
                 for x in (center - damage_half)..(center + damage_half) {
                     for c in 0..CHECKERBOARD_CHANNELS {
-                        heal_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                        heal_grid.set(x, y, c, 0.0); // BLACK (damaged)
                     }
                 }
             }
@@ -344,7 +349,9 @@ fn main() {
     let heal_acc = compute_checkerboard_accuracy(&heal_grid, &heal_target);
     println!(
         "Self-healing (damage for {} steps, then {} recovery steps): {:.2}% accuracy",
-        reactivate_step, heal_steps - reactivate_step, heal_acc * 100.0
+        reactivate_step,
+        heal_steps - reactivate_step,
+        heal_acc * 100.0
     );
 
     // ==========================================================================
@@ -356,29 +363,30 @@ fn main() {
     let robust_size = 64;
     let robust_steps = 4000;
     let damage_block = 10;
-    
+
     let mut robust_grid = create_random_seed(robust_size, CHECKERBOARD_CHANNELS, &mut rng);
-    let robust_target = create_checkerboard(robust_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
-    
+    let robust_target =
+        create_checkerboard(robust_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
     let mut total_err: Float = 0.0;
     let mut err_samples = 0;
-    
+
     for step in 0..robust_steps {
         robust_grid = training_loop.run_steps(&robust_grid, 1); // async inference
-        
+
         // Random position for damage
         let dx = (rng.next_u64() as usize) % robust_size;
         let dy = (rng.next_u64() as usize) % robust_size;
-        
+
         // Damage 10x10 block at random position
         for y in dy..(dy + damage_block).min(robust_size) {
             for x in dx..(dx + damage_block).min(robust_size) {
                 for c in 0..CHECKERBOARD_CHANNELS {
-                    robust_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                    robust_grid.set(x, y, c, 0.0); // BLACK (damaged)
                 }
             }
         }
-        
+
         // Measure error every 100 steps
         if step % 100 == 0 {
             let mut err: Float = 0.0;
@@ -393,12 +401,14 @@ fn main() {
             err_samples += 1;
         }
     }
-    
+
     let avg_err = total_err / err_samples as Float;
     let max_err = (robust_size * robust_size) as Float;
     println!(
         "Robustness test: avg absolute error = {:.1} / {:.0} ({:.2}%)",
-        avg_err, max_err, (1.0 - avg_err / max_err) * 100.0
+        avg_err,
+        max_err,
+        (1.0 - avg_err / max_err) * 100.0
     );
 
     // Summary

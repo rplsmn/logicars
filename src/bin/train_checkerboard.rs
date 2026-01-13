@@ -15,15 +15,13 @@
 //!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
-    create_checkerboard, create_random_seed, create_small_checkerboard_model,
-    create_checkerboard_model, compute_checkerboard_accuracy,
-    TrainingLoop, TrainingConfig, SimpleRng, ProbabilisticGate, HardCircuit,
-    CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE, CHECKERBOARD_SQUARE_SIZE,
-    CHECKERBOARD_SYNC_STEPS,
-    Float,
+    compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_model,
+    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, ProbabilisticGate,
+    SimpleRng, TrainingConfig, TrainingLoop, CHECKERBOARD_CHANNELS, CHECKERBOARD_GRID_SIZE,
+    CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_SYNC_STEPS,
 };
 use std::fs::{File, OpenOptions};
-use std::io::{Write, BufWriter};
+use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 fn main() {
@@ -34,8 +32,10 @@ fn main() {
     let (dom_op, dom_prob) = test_gate.dominant_operation();
     let soft_0_1 = test_gate.execute_soft(0.0, 1.0);
     let soft_1_0 = test_gate.execute_soft(1.0, 0.0);
-    eprintln!("[GATE CHECK] Dominant op: {:?} ({:.4}), soft(0,1)={:.4}, soft(1,0)={:.4}", 
-              dom_op, dom_prob, soft_0_1, soft_1_0);
+    eprintln!(
+        "[GATE CHECK] Dominant op: {:?} ({:.4}), soft(0,1)={:.4}, soft(1,0)={:.4}",
+        dom_op, dom_prob, soft_0_1, soft_1_0
+    );
     eprintln!("[GATE CHECK] Expected: A (pass-through), soft(0,1)≈0.0, soft(1,0)≈1.0\n");
 
     // Parse command line args
@@ -69,14 +69,11 @@ fn main() {
     let eval_interval = custom_log_interval.unwrap_or(default_log_interval);
 
     // Parse --noise=N for gradient noise (default 0.001 if --noise with no value)
-    let gradient_noise: Option<Float> = args
-        .iter()
-        .find(|a| a.starts_with("--noise"))
-        .map(|a| {
-            a.strip_prefix("--noise=")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.001) // Default noise scale from gpu-plan.md §4.2
-        });
+    let gradient_noise: Option<Float> = args.iter().find(|a| a.starts_with("--noise")).map(|a| {
+        a.strip_prefix("--noise=")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.001) // Default noise scale from gpu-plan.md §4.2
+    });
 
     // Parse --log=FILE for logging to file
     let log_file: Option<String> = args
@@ -105,12 +102,16 @@ fn main() {
     };
 
     println!("Model architecture:");
-    println!("  Perception: {} gates ({} kernels)", 
-             model.perception.total_gates(), 
-             model.perception.num_kernels);
-    println!("  Update: {} gates ({} layers)", 
-             model.update.total_gates(),
-             model.update.layers.len());
+    println!(
+        "  Perception: {} gates ({} kernels)",
+        model.perception.total_gates(),
+        model.perception.num_kernels
+    );
+    println!(
+        "  Update: {} gates ({} layers)",
+        model.update.total_gates(),
+        model.update.layers.len()
+    );
     println!("  Total: {} gates\n", model.total_gates());
 
     // Create config
@@ -118,7 +119,10 @@ fn main() {
     config.gradient_noise = gradient_noise;
     let batch_size = config.batch_size;
     println!("Training configuration:");
-    println!("  Grid size: {}×{}", CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE);
+    println!(
+        "  Grid size: {}×{}",
+        CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE
+    );
     println!("  Channels: {}", CHECKERBOARD_CHANNELS);
     println!("  Steps per epoch: {}", config.num_steps);
     if unlimited_epochs {
@@ -152,9 +156,13 @@ fn main() {
         CHECKERBOARD_CHANNELS,
     );
 
-    println!("Target: {}×{} checkerboard with {}×{} squares\n",
-             CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE,
-             CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_SQUARE_SIZE);
+    println!(
+        "Target: {}×{} checkerboard with {}×{} squares\n",
+        CHECKERBOARD_GRID_SIZE,
+        CHECKERBOARD_GRID_SIZE,
+        CHECKERBOARD_SQUARE_SIZE,
+        CHECKERBOARD_SQUARE_SIZE
+    );
 
     // Training loop
     let mut best_accuracy = 0.0;
@@ -175,8 +183,17 @@ fn main() {
     if let Some(ref mut writer) = log_writer {
         writeln!(writer, "# Checkerboard Training Log").unwrap();
         writeln!(writer, "# Started: {:?}", std::time::SystemTime::now()).unwrap();
-        writeln!(writer, "# Model: {} gates", training_loop.model.total_gates()).unwrap();
-        writeln!(writer, "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s").unwrap();
+        writeln!(
+            writer,
+            "# Model: {} gates",
+            training_loop.model.total_gates()
+        )
+        .unwrap();
+        writeln!(
+            writer,
+            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s"
+        )
+        .unwrap();
         writer.flush().unwrap();
     }
 
@@ -191,11 +208,7 @@ fn main() {
 
         // Create batch of random seeds for this epoch
         let inputs: Vec<_> = (0..batch_size)
-            .map(|_| create_random_seed(
-                CHECKERBOARD_GRID_SIZE,
-                CHECKERBOARD_CHANNELS,
-                &mut rng,
-            ))
+            .map(|_| create_random_seed(CHECKERBOARD_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng))
             .collect();
 
         // Train step with batch (multi-step rollout with loss at final step)
@@ -205,30 +218,36 @@ fn main() {
         let is_last = !unlimited_epochs && epoch == epochs - 1;
         if epoch % eval_interval == 0 || is_last {
             // Run hard evaluation
-            let test_input = create_random_seed(
-                CHECKERBOARD_GRID_SIZE,
-                CHECKERBOARD_CHANNELS,
-                &mut rng,
-            );
+            let test_input =
+                create_random_seed(CHECKERBOARD_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
             let output = training_loop.run_steps(&test_input, CHECKERBOARD_SYNC_STEPS);
             let accuracy = compute_checkerboard_accuracy(&output, &target);
-            
+
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
 
             let elapsed = start.elapsed().as_secs_f32();
-            
+
             // Print to stdout
             println!(
                 "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s]",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
+                epoch,
+                soft_loss,
+                hard_loss,
+                accuracy * 100.0,
+                best_accuracy * 100.0,
+                elapsed
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
-                writeln!(writer, "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
-                         epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed).unwrap();
+                writeln!(
+                    writer,
+                    "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
+                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed
+                )
+                .unwrap();
                 writer.flush().unwrap();
             }
         }
@@ -243,31 +262,38 @@ fn main() {
     let mut total_acc = 0.0;
     let num_eval = 10;
     for _ in 0..num_eval {
-        let test_input = create_random_seed(
-            CHECKERBOARD_GRID_SIZE,
-            CHECKERBOARD_CHANNELS,
-            &mut rng,
-        );
+        let test_input =
+            create_random_seed(CHECKERBOARD_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
         let output = training_loop.run_steps(&test_input, CHECKERBOARD_SYNC_STEPS);
         total_acc += compute_checkerboard_accuracy(&output, &target);
     }
     let train_size_acc = total_acc / num_eval as Float;
 
-    println!("Training size ({}×{}): {:.2}% accuracy",
-             CHECKERBOARD_GRID_SIZE, CHECKERBOARD_GRID_SIZE, train_size_acc * 100.0);
+    println!(
+        "Training size ({}×{}): {:.2}% accuracy",
+        CHECKERBOARD_GRID_SIZE,
+        CHECKERBOARD_GRID_SIZE,
+        train_size_acc * 100.0
+    );
 
     // Evaluate on larger grid (generalization test)
     // Paper quote: "scale up both the spatial and temporal dimensions by a factor of four"
     let scale_factor = 4;
     let large_size = CHECKERBOARD_GRID_SIZE * scale_factor; // 16 * 4 = 64
     let large_steps = CHECKERBOARD_SYNC_STEPS * scale_factor; // 20 * 4 = 80
-    let large_target = create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+    let large_target =
+        create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
     let large_input = create_random_seed(large_size, CHECKERBOARD_CHANNELS, &mut rng);
     let large_output = training_loop.run_steps(&large_input, large_steps);
     let large_acc = compute_checkerboard_accuracy(&large_output, &large_target);
 
-    println!("Large size ({}×{}, {} steps): {:.2}% accuracy (generalization test)",
-             large_size, large_size, large_steps, large_acc * 100.0);
+    println!(
+        "Large size ({}×{}, {} steps): {:.2}% accuracy (generalization test)",
+        large_size,
+        large_size,
+        large_steps,
+        large_acc * 100.0
+    );
 
     // ==========================================================================
     // Self-Healing Test (reference: cell 28 in diffLogic_CA.ipynb)
@@ -281,27 +307,32 @@ fn main() {
     let reactivate_step = 40; // Re-enable cells after 40 steps (20*2)
 
     let mut heal_grid = create_random_seed(heal_size, CHECKERBOARD_CHANNELS, &mut rng);
-    let heal_target = create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+    let heal_target =
+        create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
 
     // Run with damage for first 40 steps, then allow healing
     for step in 0..heal_steps {
         heal_grid = training_loop.run_steps(&heal_grid, 1);
-        
+
         // Deactivate center 20x20 for first 40 steps
         if step < reactivate_step {
             let center = heal_size / 2;
             for y in (center - damage_half)..(center + damage_half) {
                 for x in (center - damage_half)..(center + damage_half) {
                     for c in 0..CHECKERBOARD_CHANNELS {
-                        heal_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                        heal_grid.set(x, y, c, 0.0); // BLACK (damaged)
                     }
                 }
             }
         }
     }
     let heal_acc = compute_checkerboard_accuracy(&heal_grid, &heal_target);
-    println!("Self-healing (damage for {} steps, then {} recovery steps): {:.2}% accuracy",
-             reactivate_step, heal_steps - reactivate_step, heal_acc * 100.0);
+    println!(
+        "Self-healing (damage for {} steps, then {} recovery steps): {:.2}% accuracy",
+        reactivate_step,
+        heal_steps - reactivate_step,
+        heal_acc * 100.0
+    );
 
     // ==========================================================================
     // Fault-Tolerance Test (reference: cell 27 in diffLogic_CA.ipynb)
@@ -313,29 +344,39 @@ fn main() {
 
     for _step in 0..heal_steps {
         fault_grid = training_loop.run_steps(&fault_grid, 1);
-        
+
         // Continuously deactivate center 20x20
         let center = heal_size / 2;
         for y in (center - damage_half)..(center + damage_half) {
             for x in (center - damage_half)..(center + damage_half) {
                 for c in 0..CHECKERBOARD_CHANNELS {
-                    fault_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                    fault_grid.set(x, y, c, 0.0); // BLACK (damaged)
                 }
             }
         }
     }
-    
+
     // Compute accuracy excluding damaged region
     let mut correct = 0;
     let mut total = 0;
     for y in 0..heal_size {
         for x in 0..heal_size {
             let center = heal_size / 2;
-            let in_damage = x >= center - damage_half && x < center + damage_half
-                         && y >= center - damage_half && y < center + damage_half;
+            let in_damage = x >= center - damage_half
+                && x < center + damage_half
+                && y >= center - damage_half
+                && y < center + damage_half;
             if !in_damage {
-                let pred: Float = if fault_grid.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
-                let tgt: Float = if heal_target.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
+                let pred: Float = if fault_grid.get(x as isize, y as isize, 0) > 0.5 {
+                    1.0
+                } else {
+                    0.0
+                };
+                let tgt: Float = if heal_target.get(x as isize, y as isize, 0) > 0.5 {
+                    1.0
+                } else {
+                    0.0
+                };
                 if (pred - tgt).abs() < 0.01 {
                     correct += 1;
                 }
@@ -344,7 +385,10 @@ fn main() {
         }
     }
     let fault_acc = correct as Float / total as Float;
-    println!("Fault-tolerance (excluding damaged region): {:.2}% accuracy", fault_acc * 100.0);
+    println!(
+        "Fault-tolerance (excluding damaged region): {:.2}% accuracy",
+        fault_acc * 100.0
+    );
 
     // Print sample output
     println!("\n=== Sample Output (channel 0, 8×8 top-left) ===\n");
@@ -353,14 +397,22 @@ fn main() {
 
     print!("Target:    ");
     for x in 0..8 {
-        let v = if target.get(x, 0, 0) > 0.5 { "█" } else { "░" };
+        let v = if target.get(x, 0, 0) > 0.5 {
+            "█"
+        } else {
+            "░"
+        };
         print!("{}", v);
     }
     println!();
 
     print!("Predicted: ");
     for x in 0..8 {
-        let v = if sample_output.get(x, 0, 0) > 0.5 { "█" } else { "░" };
+        let v = if sample_output.get(x, 0, 0) > 0.5 {
+            "█"
+        } else {
+            "░"
+        };
         print!("{}", v);
     }
     println!("\n");
