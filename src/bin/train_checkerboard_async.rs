@@ -19,10 +19,9 @@
 
 use logicars::{
     compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
-    create_random_seed, create_small_checkerboard_model, HardCircuit, SimpleRng, TrainingConfig,
-    TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS, CHECKERBOARD_CHANNELS,
-    CHECKERBOARD_SQUARE_SIZE,
-    Float,
+    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, SimpleRng,
+    TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
+    CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -101,10 +100,7 @@ fn main() {
     println!("  Epochs: {}", epochs);
     println!("  Log interval: {}", eval_interval);
     println!("  Non-periodic boundaries: {}", !config.periodic);
-    println!(
-        "  Batch size: {} (async uses single samples)",
-        config.batch_size
-    );
+    println!("  Batch size: {}", config.batch_size);
     if let Some(ref log_path) = log_file {
         println!("  Log file: {}", log_path);
     }
@@ -177,7 +173,7 @@ fn main() {
     let mut cooldown_triggered = false;
     let mut cooldown_epoch: Option<usize> = None;
     let mut early_stop_counter = 0;
-    let early_stop_patience = 5; // Number of evals with perfect acc/loss before stopping
+    let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
     let mut finalized = false;
 
     for epoch in 0..epochs {
