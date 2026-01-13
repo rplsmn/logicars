@@ -12,6 +12,7 @@
 //! - Multi-step rollout support
 //! - Rayon parallelization for cell-level operations
 
+use crate::Float;
 use crate::grid::{BoundaryCondition, NGrid, NNeighborhood};
 use crate::optimizer::AdamW;
 use crate::perception::{GateLayer, PerceptionModule};
@@ -20,24 +21,24 @@ use crate::update::{DiffLogicCA, UpdateModule};
 use rayon::prelude::*;
 
 /// Fire rate for async training (probability of cell update)
-pub const FIRE_RATE: f64 = 0.6;
+pub const FIRE_RATE: Float = 0.6;
 
 /// Default gradient clipping value
-pub const GRADIENT_CLIP: f64 = 100.0;
+pub const GRADIENT_CLIP: Float = 100.0;
 
 /// Training configuration matching reference hyperparameters
 #[derive(Debug, Clone)]
 pub struct TrainingConfig {
     /// Learning rate (default: 0.05)
-    pub learning_rate: f64,
+    pub learning_rate: Float,
     /// Gradient clipping value (default: 100.0)
-    pub gradient_clip: f64,
+    pub gradient_clip: Float,
     /// Number of steps per forward pass (default: 1)
     pub num_steps: usize,
     /// Use async training with fire rate masking
     pub async_training: bool,
     /// Fire rate for async training (default: 0.6)
-    pub fire_rate: f64,
+    pub fire_rate: Float,
     /// Use periodic (toroidal) boundaries
     pub periodic: bool,
     /// Which channel to compute loss on (None = all channels, Some(c) = only channel c)
@@ -47,9 +48,9 @@ pub struct TrainingConfig {
     /// Larger batches provide more gradient variance, helping escape local minima.
     pub batch_size: usize,
     /// Random gradient noise scale (default: None = disabled)
-    /// When enabled, adds noise: grad[i] += rng.next_f64() * noise_scale * grad[i].abs()
+    /// When enabled, adds noise: grad[i] += rng.next_float() * noise_scale * grad[i].abs()
     /// This can help break gradient symmetry and escape local minima.
-    pub gradient_noise: Option<f64>,
+    pub gradient_noise: Option<Float>,
 }
 
 impl Default for TrainingConfig {
@@ -121,12 +122,12 @@ impl TrainingConfig {
 /// parallel computation followed by sequential accumulation.
 struct CellGradients {
     /// Update gradients: [layer_idx][gate_idx][16 logits]
-    update_grads: Vec<Vec<[f64; 16]>>,
+    update_grads: Vec<Vec<[Float; 16]>>,
     /// Perception gradients: [kernel_idx][channel_grads]
     /// where channel_grads = [layer_idx][gate_idx][16 logits]
-    perception_grads: Vec<Vec<Vec<Vec<[f64; 16]>>>>,
+    perception_grads: Vec<Vec<Vec<Vec<[Float; 16]>>>>,
     /// Input gradients for 9 neighborhood positions × channels
-    input_grads: Vec<f64>,
+    input_grads: Vec<Float>,
     /// Cell x position for distributing input gradients
     x: usize,
     /// Cell y position for distributing input gradients
@@ -139,13 +140,13 @@ struct CellGradients {
 /// parallel sample processing followed by sequential accumulation.
 struct SampleGradients {
     /// Perception gradients for this sample: [kernel][layer][gate][16 logits]
-    perception_grads: Vec<Vec<Vec<[f64; 16]>>>,
+    perception_grads: Vec<Vec<Vec<[Float; 16]>>>,
     /// Update gradients for this sample: [layer][gate][16 logits]
-    update_grads: Vec<Vec<[f64; 16]>>,
+    update_grads: Vec<Vec<[Float; 16]>>,
     /// Soft loss for this sample
-    soft_loss: f64,
+    soft_loss: Float,
     /// Hard loss for this sample
-    hard_loss: f64,
+    hard_loss: Float,
 }
 
 /// Simple random number generator (xorshift64)
@@ -172,14 +173,14 @@ impl SimpleRng {
         x
     }
 
-    /// Generate random f64 in [0, 1)
-    pub fn next_f64(&mut self) -> f64 {
-        (self.next_u64() as f64) / (u64::MAX as f64)
+    /// Generate random Float in [0, 1)
+    pub fn next_float(&mut self) -> Float {
+        (self.next_u64() as Float) / (u64::MAX as Float)
     }
 
     /// Generate random bool with given probability
-    pub fn next_bool(&mut self, probability: f64) -> bool {
-        self.next_f64() < probability
+    pub fn next_bool(&mut self, probability: Float) -> bool {
+        self.next_float() < probability
     }
 }
 
@@ -219,7 +220,7 @@ impl TrainingLoop {
     }
 
     /// Create optimizers for perception module
-    fn create_perception_optimizers(perception: &PerceptionModule, lr: f64) -> Vec<Vec<Vec<AdamW>>> {
+    fn create_perception_optimizers(perception: &PerceptionModule, lr: Float) -> Vec<Vec<Vec<AdamW>>> {
         perception
             .kernels
             .iter()
@@ -234,7 +235,7 @@ impl TrainingLoop {
     }
 
     /// Create optimizers for update module
-    fn create_update_optimizers(update: &UpdateModule, lr: f64) -> Vec<Vec<AdamW>> {
+    fn create_update_optimizers(update: &UpdateModule, lr: Float) -> Vec<Vec<AdamW>> {
         update
             .layers
             .iter()
@@ -336,7 +337,7 @@ impl TrainingLoop {
     ///
     /// loss = sum((predicted - target)²) for all cells and channels
     /// Uses rayon for parallel reduction.
-    pub fn compute_loss(predicted: &NGrid, target: &NGrid) -> f64 {
+    pub fn compute_loss(predicted: &NGrid, target: &NGrid) -> Float {
         assert_eq!(predicted.width, target.width);
         assert_eq!(predicted.height, target.height);
         assert_eq!(predicted.channels, target.channels);
@@ -354,7 +355,7 @@ impl TrainingLoop {
     /// Compute MSE loss on a single channel only
     ///
     /// For multi-channel experiments like checkerboard, loss is only on the pattern channel.
-    pub fn compute_loss_channel(predicted: &NGrid, target: &NGrid, channel: usize) -> f64 {
+    pub fn compute_loss_channel(predicted: &NGrid, target: &NGrid, channel: usize) -> Float {
         assert_eq!(predicted.width, target.width);
         assert_eq!(predicted.height, target.height);
         assert!(channel < predicted.channels);
@@ -372,9 +373,9 @@ impl TrainingLoop {
     }
 
     /// Compute mean squared error (average over all values)
-    pub fn compute_mse(predicted: &NGrid, target: &NGrid) -> f64 {
+    pub fn compute_mse(predicted: &NGrid, target: &NGrid) -> Float {
         let loss = Self::compute_loss(predicted, target);
-        loss / predicted.num_values() as f64
+        loss / predicted.num_values() as Float
     }
 
     /// Forward pass through the grid in soft mode (for training)
@@ -493,7 +494,7 @@ impl TrainingLoop {
                 output.set_cell(x, y, &cell_output);
             } else {
                 // Copy old value from input
-                let old_values: Vec<f64> = (0..input.channels)
+                let old_values: Vec<Float> = (0..input.channels)
                     .map(|c| input.get(x as isize, y as isize, c))
                     .collect();
                 output.set_cell(x, y, &old_values);
@@ -521,7 +522,7 @@ impl TrainingLoop {
     /// then backpropagates through all steps (BPTT).
     ///
     /// Returns (soft_loss, hard_loss) matching reference implementation
-    pub fn train_step(&mut self, input: &NGrid, target: &NGrid) -> (f64, f64) {
+    pub fn train_step(&mut self, input: &NGrid, target: &NGrid) -> (Float, Float) {
         // Delegate to batch training with batch_size=1
         self.train_step_batch(&[input.clone()], target)
     }
@@ -539,7 +540,7 @@ impl TrainingLoop {
     /// Uses rayon to process batch samples in parallel.
     ///
     /// Returns (soft_loss, hard_loss) summed over the batch
-    pub fn train_step_batch(&mut self, inputs: &[NGrid], target: &NGrid) -> (f64, f64) {
+    pub fn train_step_batch(&mut self, inputs: &[NGrid], target: &NGrid) -> (Float, Float) {
         let num_steps = self.config.num_steps;
         let batch_size = inputs.len();
         let loss_channel = self.config.loss_channel;
@@ -745,8 +746,8 @@ impl TrainingLoop {
 
     /// Merge sample perception gradients into accumulator
     fn merge_perception_gradients(
-        accum: &mut Vec<Vec<Vec<[f64; 16]>>>,
-        sample: &Vec<Vec<Vec<[f64; 16]>>>,
+        accum: &mut Vec<Vec<Vec<[Float; 16]>>>,
+        sample: &Vec<Vec<Vec<[Float; 16]>>>,
     ) {
         for (k, kernel_grads) in sample.iter().enumerate() {
             for (l, layer_grads) in kernel_grads.iter().enumerate() {
@@ -761,8 +762,8 @@ impl TrainingLoop {
 
     /// Merge sample update gradients into accumulator
     fn merge_update_gradients(
-        accum: &mut Vec<Vec<[f64; 16]>>,
-        sample: &Vec<Vec<[f64; 16]>>,
+        accum: &mut Vec<Vec<[Float; 16]>>,
+        sample: &Vec<Vec<[Float; 16]>>,
     ) {
         for (l, layer_grads) in sample.iter().enumerate() {
             for (g, gate_grad) in layer_grads.iter().enumerate() {
@@ -774,7 +775,7 @@ impl TrainingLoop {
     }
 
     /// Create empty gradient accumulator for perception module
-    fn create_perception_grad_accum(&self) -> Vec<Vec<Vec<[f64; 16]>>> {
+    fn create_perception_grad_accum(&self) -> Vec<Vec<Vec<[Float; 16]>>> {
         self.model
             .perception
             .kernels
@@ -790,7 +791,7 @@ impl TrainingLoop {
     }
 
     /// Create empty gradient accumulator for update module
-    fn create_update_grad_accum(&self) -> Vec<Vec<[f64; 16]>> {
+    fn create_update_grad_accum(&self) -> Vec<Vec<[Float; 16]>> {
         self.model
             .update
             .layers
@@ -809,8 +810,8 @@ impl TrainingLoop {
         step_grids: &[NGrid],
         step_activations: &[GridActivations],
         target: &NGrid,
-        perception_grad_accum: &mut Vec<Vec<Vec<[f64; 16]>>>,
-        update_grad_accum: &mut Vec<Vec<[f64; 16]>>,
+        perception_grad_accum: &mut Vec<Vec<Vec<[Float; 16]>>>,
+        update_grad_accum: &mut Vec<Vec<[Float; 16]>>,
     ) {
         let num_steps = step_activations.len();
         let num_cells = step_grids[0].num_cells();
@@ -864,7 +865,7 @@ impl TrainingLoop {
                     let y = cell_idx / width;
 
                     // Get output gradient for this cell
-                    let output_grads: Vec<f64> = (0..channels)
+                    let output_grads: Vec<Float> = (0..channels)
                         .map(|c| grid_grads.get(x as isize, y as isize, c))
                         .collect();
 
@@ -1003,9 +1004,9 @@ impl TrainingLoop {
     fn compute_input_grads(
         &self,
         neighborhood: &NNeighborhood,
-        perception_activations: &[Vec<Vec<Vec<f64>>>],
-        perception_output_grads: &[f64],
-    ) -> Vec<f64> {
+        perception_activations: &[Vec<Vec<Vec<Float>>>],
+        perception_output_grads: &[Float],
+    ) -> Vec<Float> {
         // Backpropagate through perception to get gradients w.r.t. input
         self.model.perception.compute_input_gradients(
             neighborhood,
@@ -1017,12 +1018,12 @@ impl TrainingLoop {
     /// Apply accumulated gradients to model weights
     fn apply_gradients(
         &mut self,
-        perception_grads: &[Vec<Vec<[f64; 16]>>],
-        update_grads: &[Vec<[f64; 16]>],
-        scale: f64,
+        perception_grads: &[Vec<Vec<[Float; 16]>>],
+        update_grads: &[Vec<[Float; 16]>],
+        scale: Float,
     ) {
         // Compute global gradient norm for proper clipping (matching optax.clip)
-        let mut global_norm_sq = 0.0f64;
+        let mut global_norm_sq = 0.0;
         for kernel_grads in perception_grads.iter() {
             for layer_grads in kernel_grads.iter() {
                 for gate_grad in layer_grads.iter() {
@@ -1049,11 +1050,11 @@ impl TrainingLoop {
         };
 
         // DEBUG: Track gradient statistics
-        let mut total_grad_sum = 0.0f64;
-        let mut max_grad = 0.0f64;
+        let mut total_grad_sum: Float = 0.0;
+        let mut max_grad: Float = 0.0;
         let mut num_grads = 0usize;
-        let mut weight_before_sample = 0.0f64;
-        let mut weight_after_sample = 0.0f64;
+        let mut weight_before_sample: Float = 0.0;
+        let mut weight_after_sample: Float = 0.0;
         let mut sample_taken = false;
 
         // Apply updates to perception weights
@@ -1065,7 +1066,7 @@ impl TrainingLoop {
                         let mut g = gate_grad[i] * scale * clip_coef;
                         // Add random gradient noise to break symmetry (gpu-plan.md §4.2)
                         if let Some(noise_scale) = self.config.gradient_noise {
-                            g += self.rng.next_f64() * noise_scale * g.abs();
+                            g += self.rng.next_float() * noise_scale * g.abs();
                         }
                         scaled[i] = g;
                         total_grad_sum += g.abs();
@@ -1104,7 +1105,7 @@ impl TrainingLoop {
                     let mut g = gate_grad[i] * scale * clip_coef;
                     // Add random gradient noise to break symmetry (gpu-plan.md §4.2)
                     if let Some(noise_scale) = self.config.gradient_noise {
-                        g += self.rng.next_f64() * noise_scale * g.abs();
+                        g += self.rng.next_float() * noise_scale * g.abs();
                     }
                     scaled[i] = g;
                     total_grad_sum += g.abs();
@@ -1124,7 +1125,7 @@ impl TrainingLoop {
         // DEBUG: Print gradient and weight statistics (enabled via LOGICARS_DEBUG=1)
         let debug_enabled = std::env::var("LOGICARS_DEBUG").map(|v| v == "1").unwrap_or(false);
         if debug_enabled && self.iteration % 10 == 0 {
-            let avg_grad = if num_grads > 0 { total_grad_sum / num_grads as f64 } else { 0.0 };
+            let avg_grad = if num_grads > 0 { total_grad_sum / num_grads as Float } else { 0.0 };
             let weight_delta = weight_after_sample - weight_before_sample;
             
             // Count dominant operations across all gates
@@ -1150,7 +1151,7 @@ impl TrainingLoop {
             
             // Print operation distribution (index 3 = pass-through A)
             let total_gates = op_counts.iter().sum::<usize>();
-            let pass_through_pct = 100.0 * op_counts[3] as f64 / total_gates as f64;
+            let pass_through_pct = 100.0 * op_counts[3] as Float / total_gates as Float;
             
             // Track average logit values for pass-through (index 3) across gates
             let mut avg_logit_3 = 0.0;
@@ -1162,12 +1163,12 @@ impl TrainingLoop {
                     avg_logit_others += gate.logits.iter().enumerate()
                         .filter(|(i, _)| *i != 3)
                         .map(|(_, v)| *v)
-                        .sum::<f64>() / 15.0;
+                        .sum::<Float>() / 15.0;
                     gate_count += 1;
                 }
             }
-            avg_logit_3 /= gate_count as f64;
-            avg_logit_others /= gate_count as f64;
+            avg_logit_3 /= gate_count as Float;
+            avg_logit_others /= gate_count as Float;
             
             eprintln!(
                 "[DEBUG iter={}] global_norm={:.4}, clip_coef={:.4} | grads: avg={:.6}, max={:.6} | pass-through: {:.1}%",
@@ -1182,10 +1183,10 @@ impl TrainingLoop {
     /// Compute gradient w.r.t. perception output (for chain rule through update)
     fn compute_perception_output_grads(
         &self,
-        perception_output: &[f64],
-        update_activations: &[Vec<f64>],
-        output_grads: &[f64],
-    ) -> Vec<f64> {
+        perception_output: &[Float],
+        update_activations: &[Vec<Float>],
+        output_grads: &[Float],
+    ) -> Vec<Float> {
         let num_layers = self.model.update.layers.len();
         let mut grads = output_grads.to_vec();
 
@@ -1193,7 +1194,7 @@ impl TrainingLoop {
         for layer_idx in (0..num_layers).rev() {
             let layer = &self.model.update.layers[layer_idx];
 
-            let layer_inputs: Vec<f64> = if layer_idx == 0 {
+            let layer_inputs: Vec<Float> = if layer_idx == 0 {
                 perception_output.to_vec()
             } else {
                 update_activations[layer_idx - 1].clone()
@@ -1227,7 +1228,7 @@ impl TrainingLoop {
     /// Get current hard accuracy on a dataset
     ///
     /// Returns fraction of cells that match exactly after hard inference
-    pub fn evaluate_accuracy(&self, inputs: &[NGrid], targets: &[NGrid]) -> f64 {
+    pub fn evaluate_accuracy(&self, inputs: &[NGrid], targets: &[NGrid]) -> Float {
         let mut correct = 0usize;
         let mut total = 0usize;
 
@@ -1250,11 +1251,11 @@ impl TrainingLoop {
             }
         }
 
-        correct as f64 / total as f64
+        correct as Float / total as Float
     }
 
     /// Set the learning rate for all optimizers
-    pub fn set_learning_rate(&mut self, lr: f64) {
+    pub fn set_learning_rate(&mut self, lr: Float) {
         for kernel in &mut self.perception_optimizers {
             for layer in kernel {
                 for opt in layer {
@@ -1276,18 +1277,18 @@ struct GridActivations {
     /// Neighborhoods for each cell
     neighborhoods: Vec<NNeighborhood>,
     /// Perception outputs for each cell
-    perception_outputs: Vec<Vec<f64>>,
+    perception_outputs: Vec<Vec<Float>>,
     /// Perception activations: [cell][kernel][channel][layer]
-    perception_activations: Vec<Vec<Vec<Vec<Vec<f64>>>>>,
+    perception_activations: Vec<Vec<Vec<Vec<Vec<Float>>>>>,
     /// Update activations: [cell][layer]
-    update_activations: Vec<Vec<Vec<f64>>>,
+    update_activations: Vec<Vec<Vec<Float>>>,
     /// Fire mask for async training: which cells were updated (None = all cells updated)
     /// When Some, fire_mask[cell_idx] = true means cell was updated, false means kept old value
     fire_mask: Option<Vec<bool>>,
 }
 
 /// Compute gradient of gate output w.r.t. its inputs
-fn compute_gate_input_grads(gate: &crate::gates::ProbabilisticGate, a: f64, b: f64) -> (f64, f64) {
+fn compute_gate_input_grads(gate: &crate::gates::ProbabilisticGate, a: Float, b: Float) -> (Float, Float) {
     let probs = gate.probabilities();
     let mut da = 0.0;
     let mut db = 0.0;
@@ -1302,7 +1303,7 @@ fn compute_gate_input_grads(gate: &crate::gates::ProbabilisticGate, a: f64, b: f
 }
 
 /// Compute gradient of operation output w.r.t. its inputs
-fn op_input_grads(op: BinaryOp, a: f64, b: f64) -> (f64, f64) {
+fn op_input_grads(op: BinaryOp, a: Float, b: Float) -> (Float, Float) {
     match op {
         BinaryOp::False => (0.0, 0.0),
         BinaryOp::And => (b, a),
@@ -1379,11 +1380,11 @@ mod tests {
     }
 
     #[test]
-    fn test_rng_f64_range() {
+    fn test_rng_float_range() {
         let mut rng = SimpleRng::new(123);
 
         for _ in 0..1000 {
-            let v = rng.next_f64();
+            let v = rng.next_float();
             assert!(v >= 0.0 && v < 1.0, "Value {} out of range", v);
         }
     }
@@ -1400,7 +1401,7 @@ mod tests {
             }
         }
 
-        let ratio = count as f64 / total as f64;
+        let ratio = count as Float / total as Float;
         assert!(ratio > 0.55 && ratio < 0.65, "Fire rate ~0.6 expected, got {}", ratio);
     }
 

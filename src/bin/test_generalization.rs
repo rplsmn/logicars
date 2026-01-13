@@ -8,6 +8,7 @@
 use logicars::{
     compute_checkerboard_accuracy, create_checkerboard, create_random_seed, HardCircuit, SimpleRng,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
+    Float,
 };
 use std::env;
 
@@ -73,7 +74,7 @@ fn main() {
             let acc = compute_checkerboard_accuracy(&output, &target);
             total_acc += acc;
         }
-        let avg_acc = total_acc / num_trials as f64;
+        let avg_acc = total_acc / num_trials as Float;
 
         // Check exit criterion for 64×64
         let status = if size == 64 {

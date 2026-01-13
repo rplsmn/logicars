@@ -9,6 +9,8 @@
 //!
 //! Design: Dynamic channels (runtime) for flexibility across experiments.
 
+use crate::Float;
+
 /// Boundary condition for grid edges
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundaryCondition {
@@ -20,7 +22,7 @@ pub enum BoundaryCondition {
 
 /// N-bit grid with C channels per cell
 ///
-/// Cells are stored in soft (f64) representation for training.
+/// Cells are stored in soft (Float) representation for training.
 /// Use `to_hard()` to convert to discrete values for inference.
 #[derive(Debug, Clone)]
 pub struct NGrid {
@@ -34,7 +36,7 @@ pub struct NGrid {
     pub boundary: BoundaryCondition,
     /// Flat storage: [cell0_ch0, cell0_ch1, ..., cell1_ch0, ...]
     /// Length = width * height * channels
-    cells: Vec<f64>,
+    cells: Vec<Float>,
 }
 
 impl NGrid {
@@ -66,7 +68,7 @@ impl NGrid {
         height: usize,
         channels: usize,
         boundary: BoundaryCondition,
-        cells: Vec<f64>,
+        cells: Vec<Float>,
     ) -> Self {
         assert_eq!(
             cells.len(),
@@ -107,7 +109,7 @@ impl NGrid {
     /// For periodic grids: coordinates wrap around
     /// For non-periodic grids: coordinates are clamped to edges
     #[inline]
-    pub fn get(&self, x: isize, y: isize, channel: usize) -> f64 {
+    pub fn get(&self, x: isize, y: isize, channel: usize) -> Float {
         debug_assert!(channel < self.channels);
         // For NonPeriodic, return 0.0 for out-of-bounds (zero-padding)
         if self.boundary == BoundaryCondition::NonPeriodic {
@@ -121,14 +123,14 @@ impl NGrid {
 
     /// Set a single channel value at (x, y)
     #[inline]
-    pub fn set(&mut self, x: usize, y: usize, channel: usize, value: f64) {
+    pub fn set(&mut self, x: usize, y: usize, channel: usize, value: Float) {
         debug_assert!(channel < self.channels);
         let idx = self.cell_index(x, y, channel);
         self.cells[idx] = value;
     }
 
     /// Get all channels for a cell at (x, y)
-    pub fn get_cell(&self, x: isize, y: isize) -> Vec<f64> {
+    pub fn get_cell(&self, x: isize, y: isize) -> Vec<Float> {
         // For NonPeriodic, return zeros for out-of-bounds (zero-padding)
         if self.boundary == BoundaryCondition::NonPeriodic {
             if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
@@ -141,14 +143,14 @@ impl NGrid {
     }
 
     /// Set all channels for a cell at (x, y)
-    pub fn set_cell(&mut self, x: usize, y: usize, values: &[f64]) {
+    pub fn set_cell(&mut self, x: usize, y: usize, values: &[Float]) {
         assert_eq!(values.len(), self.channels);
         let start = self.cell_index(x, y, 0);
         self.cells[start..start + self.channels].copy_from_slice(values);
     }
 
     /// Get all channels for a cell as a fixed-size array (for common sizes)
-    pub fn get_cell_array<const C: usize>(&self, x: isize, y: isize) -> [f64; C] {
+    pub fn get_cell_array<const C: usize>(&self, x: isize, y: isize) -> [Float; C] {
         assert_eq!(C, self.channels, "Array size must match channel count");
         // For NonPeriodic, return zeros for out-of-bounds (zero-padding)
         if self.boundary == BoundaryCondition::NonPeriodic {
@@ -214,19 +216,19 @@ impl NGrid {
     }
 
     /// Raw access to underlying data
-    pub fn raw_data(&self) -> &[f64] {
+    pub fn raw_data(&self) -> &[Float] {
         &self.cells
     }
 
     /// Mutable raw access
-    pub fn raw_data_mut(&mut self) -> &mut [f64] {
+    pub fn raw_data_mut(&mut self) -> &mut [Float] {
         &mut self.cells
     }
 
     /// Convert to hard (discrete) grid
     /// Values > 0.5 become 1.0, others become 0.0
     pub fn to_hard(&self) -> NGrid {
-        let hard_cells: Vec<f64> = self.cells.iter().map(|&v| if v > 0.5 { 1.0 } else { 0.0 }).collect();
+        let hard_cells: Vec<Float> = self.cells.iter().map(|&v| if v > 0.5 { 1.0 } else { 0.0 }).collect();
         NGrid {
             width: self.width,
             height: self.height,
@@ -250,7 +252,7 @@ impl NGrid {
         bools: &[bool],
     ) -> Self {
         assert_eq!(bools.len(), width * height);
-        let cells: Vec<f64> = bools.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect();
+        let cells: Vec<Float> = bools.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect();
         Self {
             width,
             height,
@@ -271,18 +273,18 @@ pub struct NNeighborhood {
     pub channels: usize,
     /// Flat storage: 9 cells × C channels
     /// Order: [NW_ch0..NW_chC, N_ch0..N_chC, ..., SE_ch0..SE_chC]
-    pub cells: Vec<f64>,
+    pub cells: Vec<Float>,
 }
 
 impl NNeighborhood {
     /// Create from raw cell data
-    pub fn new(channels: usize, cells: Vec<f64>) -> Self {
+    pub fn new(channels: usize, cells: Vec<Float>) -> Self {
         assert_eq!(cells.len(), 9 * channels);
         Self { channels, cells }
     }
 
     /// Create from a 9-element array of C-channel cells
-    pub fn from_cells<const C: usize>(cells: [[f64; C]; 9]) -> Self {
+    pub fn from_cells<const C: usize>(cells: [[Float; C]; 9]) -> Self {
         let mut flat = Vec::with_capacity(9 * C);
         for cell in cells {
             flat.extend(cell);
@@ -295,23 +297,23 @@ impl NNeighborhood {
 
     /// Get all channels for a specific cell position (0-8)
     /// 0=NW, 1=N, 2=NE, 3=W, 4=C, 5=E, 6=SW, 7=S, 8=SE
-    pub fn get_cell(&self, position: usize) -> &[f64] {
+    pub fn get_cell(&self, position: usize) -> &[Float] {
         let start = position * self.channels;
         &self.cells[start..start + self.channels]
     }
 
     /// Get a single channel from a specific cell position
-    pub fn get(&self, position: usize, channel: usize) -> f64 {
+    pub fn get(&self, position: usize, channel: usize) -> Float {
         self.cells[position * self.channels + channel]
     }
 
     /// Get center cell (position 4)
-    pub fn center(&self) -> &[f64] {
+    pub fn center(&self) -> &[Float] {
         self.get_cell(4)
     }
 
     /// Get center cell as array
-    pub fn center_array<const C: usize>(&self) -> [f64; C] {
+    pub fn center_array<const C: usize>(&self) -> [Float; C] {
         assert_eq!(C, self.channels);
         let slice = self.center();
         let mut arr = [0.0; C];
@@ -321,7 +323,7 @@ impl NNeighborhood {
 
     /// Convert to hard (discrete) values
     pub fn to_hard(&self) -> NNeighborhood {
-        let hard_cells: Vec<f64> = self.cells.iter().map(|&v| if v > 0.5 { 1.0 } else { 0.0 }).collect();
+        let hard_cells: Vec<Float> = self.cells.iter().map(|&v| if v > 0.5 { 1.0 } else { 0.0 }).collect();
         NNeighborhood {
             channels: self.channels,
             cells: hard_cells,
@@ -338,8 +340,8 @@ impl NNeighborhood {
         arr
     }
 
-    /// For C=1: convert to simple [f64; 9]
-    pub fn to_f64_array(&self) -> [f64; 9] {
+    /// For C=1: convert to simple [Float; 9]
+    pub fn to_float_array(&self) -> [Float; 9] {
         assert_eq!(self.channels, 1);
         let mut arr = [0.0; 9];
         arr.copy_from_slice(&self.cells);
@@ -403,7 +405,7 @@ impl NNeighborhood {
     }
 
     /// Raw data access
-    pub fn raw_data(&self) -> &[f64] {
+    pub fn raw_data(&self) -> &[Float] {
         &self.cells
     }
 }
@@ -556,7 +558,7 @@ mod tests {
         let mut grid = NGrid::non_periodic(3, 3, 8);
 
         // Set different values for each channel
-        let cell_values: [f64; 8] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        let cell_values: [Float; 8] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
         grid.set_cell(1, 1, &cell_values);
 
         // Verify
@@ -576,11 +578,11 @@ mod tests {
         let mut grid = NGrid::non_periodic(5, 5, 8);
 
         // Set center with distinct channels
-        let center_values: Vec<f64> = (0..8).map(|i| (i + 1) as f64 * 0.1).collect();
+        let center_values: Vec<Float> = (0..8).map(|i| (i + 1) as Float * 0.1).collect();
         grid.set_cell(2, 2, &center_values);
 
         // Set NW neighbor
-        let nw_values: Vec<f64> = (0..8).map(|i| (i + 1) as f64 * 0.01).collect();
+        let nw_values: Vec<Float> = (0..8).map(|i| (i + 1) as Float * 0.01).collect();
         grid.set_cell(1, 1, &nw_values);
 
         let n = grid.neighborhood(2, 2);
@@ -603,7 +605,7 @@ mod tests {
         let mut grid = NGrid::non_periodic(3, 3, 8);
 
         // Set corner with values
-        let corner_values: Vec<f64> = vec![1.0; 8];
+        let corner_values: Vec<Float> = vec![1.0; 8];
         grid.set_cell(0, 0, &corner_values);
 
         // Neighborhood at corner should zero-pad out-of-bounds
@@ -640,7 +642,7 @@ mod tests {
         let mut grid = NGrid::periodic(3, 3, 64);
 
         // Set cell with 64 channels
-        let cell_values: Vec<f64> = (0..64).map(|i| i as f64 / 64.0).collect();
+        let cell_values: Vec<Float> = (0..64).map(|i| i as Float / 64.0).collect();
         grid.set_cell(1, 1, &cell_values);
 
         let retrieved = grid.get_cell(1, 1);
@@ -675,7 +677,7 @@ mod tests {
         let mut grid = NGrid::periodic(3, 3, 128);
 
         // Set cell with 128 channels
-        let cell_values: Vec<f64> = (0..128).map(|i| i as f64 / 128.0).collect();
+        let cell_values: Vec<Float> = (0..128).map(|i| i as Float / 128.0).collect();
         grid.set_cell(1, 1, &cell_values);
 
         let retrieved = grid.get_cell(1, 1);
@@ -725,27 +727,27 @@ mod tests {
     fn test_nneighborhood_to_arrays_c1() {
         let n = NNeighborhood::from_gol_index(0b101010101);
 
-        let f64_arr = n.to_f64_array();
+        let float_arr = n.to_float_array();
         let bool_arr = n.to_bool_array();
 
         for i in 0..9 {
             let expected = (i % 2) == 0;
             assert_eq!(bool_arr[i], expected);
-            assert_relative_eq!(f64_arr[i], if expected { 1.0 } else { 0.0 });
+            assert_relative_eq!(float_arr[i], if expected { 1.0 } else { 0.0 });
         }
     }
 
     #[test]
     fn test_center_extraction() {
         let mut grid = NGrid::periodic(5, 5, 8);
-        let center_values: Vec<f64> = (0..8).map(|i| i as f64).collect();
+        let center_values: Vec<Float> = (0..8).map(|i| i as Float).collect();
         grid.set_cell(2, 2, &center_values);
 
         let n = grid.neighborhood(2, 2);
         let center = n.center();
 
         for i in 0..8 {
-            assert_relative_eq!(center[i], i as f64);
+            assert_relative_eq!(center[i], i as Float);
         }
     }
 

@@ -2,6 +2,14 @@
 //!
 //! A Rust implementation of Google Research's differentiable logic CA paper.
 
+/// Floating-point type used throughout the library.
+/// Set to f32 to match JAX's default precision and for better performance.
+/// Change to f64 if higher precision is needed.
+pub type Float = f32;
+
+/// Small epsilon for Float comparisons
+pub const FLOAT_EPSILON: Float = 1e-6;
+
 // Core gate primitives (BinaryOp, ProbabilisticGate)
 pub mod gates;
 pub mod optimizer;
@@ -80,6 +88,8 @@ pub use circuit::{
     HardUpdate,
     HardCircuit,
 };
+
+
 
 // Python bindings (Phase 5.1 - not yet implemented)
 // When implementing, create src/python_bindings.rs and uncomment cdylib in Cargo.toml

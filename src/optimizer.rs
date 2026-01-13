@@ -1,30 +1,32 @@
 //! Optimizers for training probabilistic gates
 
+use crate::Float;
+
 /// AdamW optimizer for training
 pub struct AdamW {
     /// Learning rate
-    pub lr: f64,
+    pub lr: Float,
     /// Beta1 for momentum
-    pub beta1: f64,
+    pub beta1: Float,
     /// Beta2 for variance
-    pub beta2: f64,
+    pub beta2: Float,
     /// Epsilon for numerical stability
-    pub epsilon: f64,
+    pub epsilon: Float,
     /// Weight decay
-    pub weight_decay: f64,
+    pub weight_decay: Float,
     /// Maximum gradient norm for clipping (100.0 per reference)
-    pub max_grad_norm: f64,
+    pub max_grad_norm: Float,
     /// First moment estimates
-    m: [f64; 16],
+    m: [Float; 16],
     /// Second moment estimates
-    v: [f64; 16],
+    v: [Float; 16],
     /// Time step
     t: usize,
 }
 
 impl AdamW {
     /// Create a new AdamW optimizer with reference implementation defaults
-    pub fn new(lr: f64) -> Self {
+    pub fn new(lr: Float) -> Self {
         Self {
             lr,
             beta1: 0.9,
@@ -42,7 +44,7 @@ impl AdamW {
     /// 
     /// Note: Gradient clipping should be done BEFORE calling this method,
     /// using global norm clipping across all parameters (like optax.clip).
-    pub fn step(&mut self, params: &mut [f64; 16], grads: &[f64; 16]) {
+    pub fn step(&mut self, params: &mut [Float; 16], grads: &[Float; 16]) {
         self.t += 1;
 
         // Apply updates (no clipping here - done globally before this call)

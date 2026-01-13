@@ -22,6 +22,7 @@ use logicars::{
     create_random_seed, create_small_checkerboard_model, HardCircuit, SimpleRng, TrainingConfig,
     TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS, CHECKERBOARD_CHANNELS,
     CHECKERBOARD_SQUARE_SIZE,
+    Float,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -170,8 +171,8 @@ fn main() {
         training_loop.config.fire_rate * 100.0
     );
 
-    let mut prev_loss: Option<f64> = None;
-    let mut prev_acc: Option<f64> = None;
+    let mut prev_loss: Option<Float> = None;
+    let mut prev_acc: Option<Float> = None;
     let mut current_lr = training_loop.config.learning_rate;
     let mut cooldown_triggered = false;
     let mut cooldown_epoch: Option<usize> = None;
@@ -286,7 +287,7 @@ fn main() {
         let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
         total_acc += compute_checkerboard_accuracy(&output, &target);
     }
-    let train_size_acc = total_acc / num_eval as f64;
+    let train_size_acc = total_acc / num_eval as Float;
 
     println!(
         "Training size ({}×{}): {:.2}% accuracy",
