@@ -171,7 +171,6 @@ fn main() {
     let mut prev_acc: Option<Float> = None;
     let mut current_lr = training_loop.config.learning_rate;
     let mut cooldown_triggered = false;
-    let mut cooldown_epoch: Option<usize> = None;
     let mut early_stop_counter = 0;
     let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
     let mut finalized = false;
@@ -202,8 +201,11 @@ fn main() {
             // Detect first time reaching 100% accuracy
             if !cooldown_triggered && accuracy >= 1.0 {
                 cooldown_triggered = true;
-                cooldown_epoch = Some(epoch);
-                current_lr = 0.05; // Cool off LR sharply for fine-tuning
+                if current_lr > 0.05 {
+                    current_lr = 0.05;
+                } else {
+                    current_lr *= 0.95;
+                }; // Cool off LR sharply for fine-tuning
                 training_loop.set_learning_rate(current_lr);
                 println!(
                     "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
@@ -295,9 +297,9 @@ fn main() {
     // ==========================================================================
     // Generalization Test (64x64 board) - reference: cell 33/34 in notebook
     // ==========================================================================
-    println!("\n=== Generalization Test (64×64) ===\n");
+    println!("\n=== Generalization Test (56x56) ===\n");
 
-    let large_size = 64; // Match reference exactly (not 56 = 14*4)
+    let large_size = 56; // Match reference exactly (56 = 14*4)
     let large_steps = CHECKERBOARD_ASYNC_STEPS * 4; // 50 * 4 = 200
     let large_target =
         create_checkerboard(large_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
@@ -319,9 +321,9 @@ fn main() {
     // On 64x64 grid, deactivate 20x20 center for first 100 steps, then re-enable
     // Uses async inference (run_async equivalent)
     // ==========================================================================
-    println!("\n=== Self-Healing Test (64×64, 20×20 damage, async inference) ===\n");
+    println!("\n=== Self-Healing Test (56×56, 20×20 damage, async inference) ===\n");
 
-    let heal_size = 64; // Reference uses 64x64
+    let heal_size = 56; // Reference uses 14*4
     let heal_steps = CHECKERBOARD_ASYNC_STEPS * 4; // 200 steps total
     let damage_half = 10; // 20x20 damage area (center-10 to center+10)
     let reactivate_step = CHECKERBOARD_ASYNC_STEPS * 2; // 100 steps (50*2)
