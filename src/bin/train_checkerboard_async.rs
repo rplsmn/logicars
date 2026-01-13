@@ -146,6 +146,10 @@ fn main() {
     println!("Training with async updates (fire rate = {:.1}%)...\n", 
              training_loop.config.fire_rate * 100.0);
 
+    let mut prev_loss: Option<f64> = None;
+    let mut prev_acc: Option<f64> = None;
+    let mut current_lr = training_loop.config.learning_rate;
+
     for epoch in 0..epochs {
         // Create random seed for this epoch
         let input = create_random_seed(
@@ -168,7 +172,22 @@ fn main() {
             );
             let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
             let accuracy = compute_checkerboard_accuracy(&output, &target);
-            
+
+            // LR schedule: adjust based on loss/accuracy trend
+            if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
+                if soft_loss > prev_l && accuracy < prev_a {
+                    // Bad jump: decrease LR
+                    current_lr *= 0.95;
+                    training_loop.set_learning_rate(current_lr);
+                } else if soft_loss < prev_l && accuracy > prev_a {
+                    // Good direction: increase LR
+                    current_lr *= 1.05;
+                    training_loop.set_learning_rate(current_lr);
+                }
+            }
+            prev_loss = Some(soft_loss);
+            prev_acc = Some(accuracy);
+
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
@@ -177,14 +196,14 @@ fn main() {
             
             // Print to stdout
             println!(
-                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s]",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed
+                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s] LR={:.5}",
+                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed, current_lr
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
-                writeln!(writer, "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
-                         epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed).unwrap();
+                writeln!(writer, "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.5}",
+                         epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, current_lr).unwrap();
                 writer.flush().unwrap();
             }
         }

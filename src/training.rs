@@ -1252,6 +1252,23 @@ impl TrainingLoop {
 
         correct as f64 / total as f64
     }
+
+    /// Set the learning rate for all optimizers
+    pub fn set_learning_rate(&mut self, lr: f64) {
+        for kernel in &mut self.perception_optimizers {
+            for layer in kernel {
+                for opt in layer {
+                    opt.lr = lr;
+                }
+            }
+        }
+        for layer in &mut self.update_optimizers {
+            for opt in layer {
+                opt.lr = lr;
+            }
+        }
+        self.config.learning_rate = lr;
+    }
 }
 
 /// Intermediate activations for backpropagation
