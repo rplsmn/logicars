@@ -201,16 +201,6 @@ fn main() {
             // Detect first time reaching 100% accuracy
             if !cooldown_triggered && accuracy >= 1.0 {
                 cooldown_triggered = true;
-                if current_lr > 0.05 {
-                    current_lr = 0.05;
-                } else {
-                    current_lr *= 0.95;
-                }; // Cool off LR sharply for fine-tuning
-                training_loop.set_learning_rate(current_lr);
-                println!(
-                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
-                    epoch, current_lr
-                );
             }
 
             // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
@@ -227,6 +217,20 @@ fn main() {
                     }
                 }
             }
+
+            if cooldown_triggered {
+                if current_lr > 0.05 {
+                    current_lr = 0.05;
+                } else {
+                    current_lr *= 0.95;
+                }; // Cool off LR sharply for fine-tuning
+                println!(
+                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
+                    epoch, current_lr
+                );
+                training_loop.set_learning_rate(current_lr);
+            }
+
             prev_loss = Some(soft_loss);
             prev_acc = Some(accuracy);
 
