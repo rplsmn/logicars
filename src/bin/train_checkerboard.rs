@@ -269,6 +269,83 @@ fn main() {
     println!("Large size ({}×{}, {} steps): {:.2}% accuracy (generalization test)",
              large_size, large_size, large_steps, large_acc * 100.0);
 
+    // ==========================================================================
+    // Self-Healing Test (reference: cell 28 in diffLogic_CA.ipynb)
+    // On 64x64 grid, deactivate 20x20 center for first 40 steps, then re-enable
+    // ==========================================================================
+    println!("\n=== Self-Healing Test (64×64, 20×20 damage) ===\n");
+
+    let heal_size = large_size; // 64x64
+    let heal_steps = large_steps; // 80 steps
+    let damage_half = 10; // 20x20 damage area (center-10 to center+10)
+    let reactivate_step = 40; // Re-enable cells after 40 steps (20*2)
+
+    let mut heal_grid = create_random_seed(heal_size, CHECKERBOARD_CHANNELS, &mut rng);
+    let heal_target = create_checkerboard(heal_size, CHECKERBOARD_SQUARE_SIZE, CHECKERBOARD_CHANNELS);
+
+    // Run with damage for first 40 steps, then allow healing
+    for step in 0..heal_steps {
+        heal_grid = training_loop.run_steps(&heal_grid, 1);
+        
+        // Deactivate center 20x20 for first 40 steps
+        if step < reactivate_step {
+            let center = heal_size / 2;
+            for y in (center - damage_half)..(center + damage_half) {
+                for x in (center - damage_half)..(center + damage_half) {
+                    for c in 0..CHECKERBOARD_CHANNELS {
+                        heal_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                    }
+                }
+            }
+        }
+    }
+    let heal_acc = compute_checkerboard_accuracy(&heal_grid, &heal_target);
+    println!("Self-healing (damage for {} steps, then {} recovery steps): {:.2}% accuracy",
+             reactivate_step, heal_steps - reactivate_step, heal_acc * 100.0);
+
+    // ==========================================================================
+    // Fault-Tolerance Test (reference: cell 27 in diffLogic_CA.ipynb)
+    // Continuously damage center - pattern should form around damaged region
+    // ==========================================================================
+    println!("\n=== Fault-Tolerance Test (continuous damage) ===\n");
+
+    let mut fault_grid = create_random_seed(heal_size, CHECKERBOARD_CHANNELS, &mut rng);
+
+    for _step in 0..heal_steps {
+        fault_grid = training_loop.run_steps(&fault_grid, 1);
+        
+        // Continuously deactivate center 20x20
+        let center = heal_size / 2;
+        for y in (center - damage_half)..(center + damage_half) {
+            for x in (center - damage_half)..(center + damage_half) {
+                for c in 0..CHECKERBOARD_CHANNELS {
+                    fault_grid.set(x, y, c, 1.0); // BLACK (damaged)
+                }
+            }
+        }
+    }
+    
+    // Compute accuracy excluding damaged region
+    let mut correct = 0;
+    let mut total = 0;
+    for y in 0..heal_size {
+        for x in 0..heal_size {
+            let center = heal_size / 2;
+            let in_damage = x >= center - damage_half && x < center + damage_half
+                         && y >= center - damage_half && y < center + damage_half;
+            if !in_damage {
+                let pred: Float = if fault_grid.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
+                let tgt: Float = if heal_target.get(x as isize, y as isize, 0) > 0.5 { 1.0 } else { 0.0 };
+                if (pred - tgt).abs() < 0.01 {
+                    correct += 1;
+                }
+                total += 1;
+            }
+        }
+    }
+    let fault_acc = correct as Float / total as Float;
+    println!("Fault-tolerance (excluding damaged region): {:.2}% accuracy", fault_acc * 100.0);
+
     // Print sample output
     println!("\n=== Sample Output (channel 0, 8×8 top-left) ===\n");
     let sample_input = create_random_seed(CHECKERBOARD_GRID_SIZE, CHECKERBOARD_CHANNELS, &mut rng);
