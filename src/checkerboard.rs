@@ -23,6 +23,8 @@ use crate::update::{DiffLogicCA, UpdateModule};
 pub const CHECKERBOARD_CHANNELS: usize = 8;
 pub const CHECKERBOARD_KERNELS: usize = 16;
 pub const CHECKERBOARD_GRID_SIZE: usize = 16;
+/// Async training uses smaller grid (14×14) per reference implementation
+pub const CHECKERBOARD_ASYNC_GRID_SIZE: usize = 14;
 pub const CHECKERBOARD_SQUARE_SIZE: usize = 2;
 pub const CHECKERBOARD_SYNC_STEPS: usize = 20;
 pub const CHECKERBOARD_ASYNC_STEPS: usize = 50;
@@ -151,6 +153,41 @@ pub fn create_checkerboard_model() -> DiffLogicCA {
 pub fn create_small_checkerboard_model() -> DiffLogicCA {
     let perception = create_checkerboard_perception();
     let update = create_small_checkerboard_update();
+    DiffLogicCA::new(perception, update)
+}
+
+/// Create update module for async checkerboard experiment.
+///
+/// Architecture: [264→256×14→128→64→32→16→8→8]
+/// Async uses deeper network (14 layers of 256) vs sync (10 layers of 256)
+/// because fire rate masking creates sparser gradients requiring more capacity.
+///
+/// Reference: diffLogic_CA.ipynb line 1692
+pub fn create_checkerboard_async_update() -> UpdateModule {
+    // Input: center(8) + kernels(16) * output_bits(2) * channels(8) = 264
+    let input_size = CHECKERBOARD_CHANNELS
+        + CHECKERBOARD_KERNELS * 2 * CHECKERBOARD_CHANNELS;
+
+    let mut layer_sizes = vec![input_size]; // 264
+
+    // 14 layers of 256 (async uses deeper network than sync's 10 layers)
+    for _ in 0..14 {
+        layer_sizes.push(256);
+    }
+
+    // Reduction layers
+    layer_sizes.extend_from_slice(&[128, 64, 32, 16, 8, CHECKERBOARD_CHANNELS]);
+
+    UpdateModule::new(&layer_sizes)
+}
+
+/// Create complete DiffLogicCA for async checkerboard experiment.
+///
+/// Uses deeper network architecture optimized for async training with fire rate masking.
+/// Reference uses 14×256 hidden layers for async vs 10×256 for sync.
+pub fn create_checkerboard_async_model() -> DiffLogicCA {
+    let perception = create_checkerboard_perception();
+    let update = create_checkerboard_async_update();
     DiffLogicCA::new(perception, update)
 }
 
@@ -458,14 +495,73 @@ mod tests {
         // Perception: 16 kernels, [9→8→4→2] = 14 gates per kernel, 16*14 = 224 gates
         assert_eq!(model.perception.num_kernels, 16);
         assert_eq!(model.perception.channels, 8);
-        
+
         // Perception output: center(8) + kernels(16) * output_bits(2) * channels(8) = 264
         assert_eq!(model.perception.output_size(), 264);
-        
+
         // Update input should match perception output
         assert_eq!(model.update.input_size, 264);
-        
+
         // Update output should be 8 channels
         assert_eq!(model.update.output_channels, 8);
+    }
+
+    #[test]
+    fn test_checkerboard_async_update_architecture() {
+        // Async update uses 14 layers of 256 (vs 10 for sync)
+        // Reference: diffLogic_CA.ipynb line 1692
+        let update = create_checkerboard_async_update();
+
+        // Input: 264, output: 8
+        assert_eq!(update.input_size, 264);
+        assert_eq!(update.output_channels, 8);
+
+        // Architecture: 264 -> 256×14 -> 128 -> 64 -> 32 -> 16 -> 8 -> 8
+        // That's 20 layer transitions (14 + 6 reduction layers)
+        assert_eq!(update.layers.len(), 20, "Async update should have 20 layers (14×256 + 6 reduction)");
+    }
+
+    #[test]
+    fn test_checkerboard_async_model_creation() {
+        let model = create_checkerboard_async_model();
+
+        assert_eq!(model.perception.channels, 8);
+        assert_eq!(model.perception.num_kernels, 16);
+        assert_eq!(model.update.output_channels, 8);
+
+        // Async model should have more gates than sync due to deeper network
+        let async_gates = model.perception.total_gates() + model.update.total_gates();
+        let sync_model = create_checkerboard_model();
+        let sync_gates = sync_model.perception.total_gates() + sync_model.update.total_gates();
+
+        assert!(async_gates > sync_gates,
+            "Async model ({} gates) should have more gates than sync ({} gates)",
+            async_gates, sync_gates);
+    }
+
+    #[test]
+    fn test_async_vs_sync_layer_depth() {
+        // Verify async has deeper network than sync
+        let sync_update = create_checkerboard_update();
+        let async_update = create_checkerboard_async_update();
+
+        // Sync: 264 -> 256×10 -> 128 -> 64 -> 32 -> 16 -> 8 -> 8 = 16 layers
+        assert_eq!(sync_update.layers.len(), 16, "Sync update should have 16 layers");
+
+        // Async: 264 -> 256×14 -> 128 -> 64 -> 32 -> 16 -> 8 -> 8 = 20 layers
+        assert_eq!(async_update.layers.len(), 20, "Async update should have 20 layers");
+
+        // Async has 4 more hidden layers
+        assert_eq!(async_update.layers.len() - sync_update.layers.len(), 4,
+            "Async should have 4 more layers than sync");
+    }
+
+    #[test]
+    fn test_async_grid_size_constant() {
+        // Verify async grid size matches reference (14×14 vs 16×16 for sync)
+        assert_eq!(CHECKERBOARD_ASYNC_GRID_SIZE, 14, "Async grid size should be 14");
+        assert_eq!(CHECKERBOARD_GRID_SIZE, 16, "Sync grid size should be 16");
+        assert!(CHECKERBOARD_ASYNC_GRID_SIZE < CHECKERBOARD_GRID_SIZE,
+            "Async grid should be smaller than sync grid");
     }
 }

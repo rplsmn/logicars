@@ -60,7 +60,8 @@ Detailed task breakdowns for specific phases.
 
 | File | Status | Description |
 |------|--------|-------------|
-| `phase-2.1a-analysis.md` | 🚧 Active | Checkerboard analysis, GIF generation, generalization testing |
+| `phase-2.1a-analysis.md` | ✅ Complete | Checkerboard analysis, GIF generation, generalization testing |
+| `phase-2.2-async.md` | 🚧 Active | Async training with fire rate masking, self-healing |
 
 ---
 

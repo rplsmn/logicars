@@ -54,6 +54,28 @@ cargo run --bin train_checkerboard --release -- --small --epochs 100
 cargo run --bin train_checkerboard --release -- --epochs 500
 ```
 
+Additional examples (logging and saving):
+
+```bash
+# Change how often training prints/evaluates (log-interval):
+# Log every 20 epochs instead of the default
+cargo run --bin train_checkerboard --release -- --epochs 200 --log-interval 20
+
+# Write training metrics to a file (append mode). Useful for resuming or plotting later:
+cargo run --bin train_checkerboard --release -- --epochs 200 --log=training.csv
+
+# Save the trained model (HardCircuit JSON) at the end of training:
+cargo run --bin train_checkerboard --release -- --epochs 500 --save=checkerboard.json
+
+# Combined example: small model, frequent logs, write log file and save final model:
+cargo run --bin train_checkerboard --release -- --small --epochs 100 --log-interval 5 --log=run.csv --save=checkerboard_small.json
+```
+
+Notes:
+- --log-interval=N controls how often (in epochs) the script runs hard evaluation and prints/writes metrics (default 50, 10 for --small).
+- --log=FILE appends CSV-style metrics to FILE (header is written when created).
+- --save=PATH writes the final HardCircuit JSON to PATH after training completes.
+
 ## Project Structure
 
 - `src/` - Core library code

@@ -433,6 +433,83 @@ impl TrainingLoop {
             perception_outputs: all_perception_outputs,
             perception_activations: all_perception_activations,
             update_activations: all_update_activations,
+            fire_mask: None, // Sync mode: all cells update
+        };
+
+        (output, activations)
+    }
+
+    /// Forward pass through the grid in soft mode with async fire rate masking (for training)
+    ///
+    /// Similar to forward_grid_soft but only updates cells that "fire" based on fire_rate.
+    /// Cells that don't fire keep their old values, and gradients are masked accordingly.
+    fn forward_grid_soft_async(&self, input: &NGrid, rng: &mut SimpleRng) -> (NGrid, GridActivations) {
+        let num_cells = input.num_cells();
+        
+        // Generate fire mask FIRST (before parallel computation for reproducibility)
+        let fire_mask: Vec<bool> = (0..num_cells)
+            .map(|_| rng.next_bool(self.config.fire_rate))
+            .collect();
+        
+        // Create coordinate list for parallel iteration
+        let coords: Vec<(usize, usize)> = (0..input.height)
+            .flat_map(|y| (0..input.width).map(move |x| (x, y)))
+            .collect();
+        
+        // Process all cells in parallel (compute new values for all, mask later)
+        let cell_results: Vec<_> = coords
+            .par_iter()
+            .map(|&(x, y)| {
+                let neighborhood = input.neighborhood(x, y);
+                
+                // Forward through perception
+                let (perception_output, perception_activations) =
+                    self.model.perception.forward_soft(&neighborhood);
+
+                // Forward through update
+                let update_activations = self.model.update.forward_soft(&perception_output);
+                let cell_output = update_activations.last().cloned().unwrap_or_default();
+
+                (x, y, cell_output, neighborhood, perception_output, perception_activations, update_activations)
+            })
+            .collect();
+        
+        // Assemble output grid and activations from parallel results
+        let mut output = NGrid::new(
+            input.width,
+            input.height,
+            input.channels,
+            input.boundary,
+        );
+        
+        let mut all_neighborhoods = Vec::with_capacity(num_cells);
+        let mut all_perception_outputs = Vec::with_capacity(num_cells);
+        let mut all_perception_activations = Vec::with_capacity(num_cells);
+        let mut all_update_activations = Vec::with_capacity(num_cells);
+
+        for (idx, (x, y, cell_output, neighborhood, perception_output, perception_activations, update_activations)) in cell_results.into_iter().enumerate() {
+            // Apply fire mask: if cell fired, use new value; otherwise keep old value
+            if fire_mask[idx] {
+                output.set_cell(x, y, &cell_output);
+            } else {
+                // Copy old value from input
+                let old_values: Vec<f64> = (0..input.channels)
+                    .map(|c| input.get(x as isize, y as isize, c))
+                    .collect();
+                output.set_cell(x, y, &old_values);
+            }
+            all_neighborhoods.push(neighborhood);
+            all_perception_outputs.push(perception_output);
+            all_perception_activations.push(perception_activations);
+            all_update_activations.push(update_activations);
+        }
+
+        let activations = GridActivations {
+            neighborhoods: all_neighborhoods,
+            perception_outputs: all_perception_outputs,
+            perception_activations: all_perception_activations,
+            update_activations: all_update_activations,
+            fire_mask: Some(fire_mask), // Async mode: store mask for backward pass
         };
 
         (output, activations)
@@ -466,14 +543,32 @@ impl TrainingLoop {
         let num_steps = self.config.num_steps;
         let batch_size = inputs.len();
         let loss_channel = self.config.loss_channel;
+        let async_training = self.config.async_training;
+
+        // For async training, pre-generate seeds for each sample
+        let seeds: Vec<u64> = if async_training {
+            (0..batch_size).map(|_| self.rng.next_u64()).collect()
+        } else {
+            vec![]
+        };
 
         // PARALLEL: Process all samples and collect their gradients
-        let sample_results: Vec<SampleGradients> = inputs
-            .par_iter()
-            .map(|input| {
-                self.compute_sample_gradients(input, target, num_steps, loss_channel)
-            })
-            .collect();
+        let sample_results: Vec<SampleGradients> = if async_training {
+            inputs
+                .iter()
+                .zip(seeds.iter())
+                .map(|(input, &seed)| {
+                    self.compute_sample_gradients_async(input, target, num_steps, loss_channel, seed)
+                })
+                .collect()
+        } else {
+            inputs
+                .par_iter()
+                .map(|input| {
+                    self.compute_sample_gradients(input, target, num_steps, loss_channel)
+                })
+                .collect()
+        };
 
         // SEQUENTIAL: Merge all sample gradients into final accumulators
         let mut perception_grad_accum = self.create_perception_grad_accum();
@@ -560,6 +655,92 @@ impl TrainingLoop {
             soft_loss,
             hard_loss,
         }
+    }
+
+    /// Process one sample with async training (fire rate masking)
+    ///
+    /// Same as compute_sample_gradients but applies fire rate masking during forward pass.
+    /// Takes a seed to create a local RNG for reproducibility.
+    fn compute_sample_gradients_async(
+        &self,
+        input: &NGrid,
+        target: &NGrid,
+        num_steps: usize,
+        loss_channel: Option<usize>,
+        seed: u64,
+    ) -> SampleGradients {
+        let mut rng = SimpleRng::new(seed);
+        
+        // Forward pass through all steps with fire rate masking
+        let mut step_grids: Vec<NGrid> = Vec::with_capacity(num_steps + 1);
+        let mut step_activations: Vec<GridActivations> = Vec::with_capacity(num_steps);
+
+        step_grids.push(input.clone());
+
+        for _step in 0..num_steps {
+            let current_grid = step_grids.last().unwrap();
+            let (output, activations) = self.forward_grid_soft_async(current_grid, &mut rng);
+            step_grids.push(output);
+            step_activations.push(activations);
+        }
+
+        // Compute soft loss at final step (channel-specific if configured)
+        let final_output = step_grids.last().unwrap();
+        let soft_loss = match loss_channel {
+            Some(c) => Self::compute_loss_channel(final_output, target, c),
+            None => Self::compute_loss(final_output, target),
+        };
+
+        // Compute hard loss for monitoring - use async mode for consistency
+        // But we use the same rng seed for reproducibility
+        let mut hard_rng = SimpleRng::new(seed);
+        let mut hard_output = input.clone();
+        for _ in 0..num_steps {
+            hard_output = self.run_step_async_hard(&hard_output, &mut hard_rng);
+        }
+        let hard_loss = match loss_channel {
+            Some(c) => Self::compute_loss_channel(&hard_output, target, c),
+            None => Self::compute_loss(&hard_output, target),
+        };
+
+        // Create local gradient accumulators
+        let mut perception_grads = self.create_perception_grad_accum();
+        let mut update_grads = self.create_update_grad_accum();
+
+        // Accumulate gradients for this sample
+        self.accumulate_gradients(
+            &step_grids,
+            &step_activations,
+            target,
+            &mut perception_grads,
+            &mut update_grads,
+        );
+
+        SampleGradients {
+            perception_grads,
+            update_grads,
+            soft_loss,
+            hard_loss,
+        }
+    }
+
+    /// Run one step in async mode with hard (discrete) outputs
+    /// 
+    /// Used for computing hard loss during async training
+    fn run_step_async_hard(&self, input: &NGrid, rng: &mut SimpleRng) -> NGrid {
+        let mut output = input.clone();
+
+        for y in 0..input.height {
+            for x in 0..input.width {
+                if rng.next_bool(self.config.fire_rate) {
+                    let neighborhood = input.neighborhood(x, y);
+                    let next_state = self.model.forward_hard(&neighborhood);
+                    output.set_cell(x, y, &next_state);
+                }
+            }
+        }
+
+        output
     }
 
     /// Merge sample perception gradients into accumulator
@@ -673,6 +854,7 @@ impl TrainingLoop {
             let input_grid = &step_grids[step];
             let activations = &step_activations[step];
             let width = input_grid.width;
+            let fire_mask = &activations.fire_mask;
 
             // PARALLEL: Compute all cell gradients in parallel
             let cell_grads: Vec<CellGradients> = (0..num_cells)
@@ -686,6 +868,27 @@ impl TrainingLoop {
                         .map(|c| grid_grads.get(x as isize, y as isize, c))
                         .collect();
 
+                    // Check if this cell fired (for async training)
+                    let cell_fired = fire_mask.as_ref().map_or(true, |mask| mask[cell_idx]);
+
+                    if !cell_fired {
+                        // Cell didn't fire: no weight gradients, but pass output grads to center input
+                        // When cell doesn't fire: output = input, so dL/d_input = dL/d_output
+                        let mut input_grads = vec![0.0; 9 * channels];
+                        // Center position is index 4 in the 3x3 neighborhood
+                        for c in 0..channels {
+                            input_grads[4 * channels + c] = output_grads[c];
+                        }
+                        return CellGradients {
+                            update_grads: vec![],
+                            perception_grads: vec![],
+                            input_grads,
+                            x,
+                            y,
+                        };
+                    }
+
+                    // Cell fired: compute gradients normally
                     // Backprop through update module
                     let update_grads = self.model.update.compute_gradients(
                         &activations.perception_outputs[cell_idx],
@@ -1061,6 +1264,9 @@ struct GridActivations {
     perception_activations: Vec<Vec<Vec<Vec<Vec<f64>>>>>,
     /// Update activations: [cell][layer]
     update_activations: Vec<Vec<Vec<f64>>>,
+    /// Fire mask for async training: which cells were updated (None = all cells updated)
+    /// When Some, fire_mask[cell_idx] = true means cell was updated, false means kept old value
+    fire_mask: Option<Vec<bool>>,
 }
 
 /// Compute gradient of gate output w.r.t. its inputs
@@ -1685,5 +1891,187 @@ mod tests {
             "Gradient noise should cause weights to differ: {} vs {}",
             weight_no_noise, weight_with_noise
         );
+    }
+
+    // ==================== Async Training Tests ====================
+
+    #[test]
+    fn test_async_forward_fires_partial_cells() {
+        // Create a small model
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let training = TrainingLoop::new(model, config);
+
+        // Create input grid
+        let mut input = NGrid::periodic(4, 4, 1);
+        for y in 0..4 {
+            for x in 0..4 {
+                input.set(x, y, 0, 1.0);
+            }
+        }
+
+        // Run async forward with known seed
+        let mut rng = SimpleRng::new(42);
+        let (output, activations) = training.forward_grid_soft_async(&input, &mut rng);
+
+        // Check that fire_mask was set
+        assert!(activations.fire_mask.is_some());
+        let fire_mask = activations.fire_mask.unwrap();
+        
+        // Count fired cells
+        let fired_count: usize = fire_mask.iter().filter(|&&b| b).count();
+        let total_cells = 16;
+        
+        // With fire_rate=0.5, expect roughly half to fire
+        // Allow generous range for small sample (4-12 out of 16)
+        assert!(
+            fired_count >= 3 && fired_count <= 13,
+            "Expected ~50% cells to fire, got {}/{}", fired_count, total_cells
+        );
+
+        // Cells that didn't fire should have same value as input
+        let width = 4;
+        for (idx, &fired) in fire_mask.iter().enumerate() {
+            let x = idx % width;
+            let y = idx / width;
+            if !fired {
+                let input_val = input.get(x as isize, y as isize, 0);
+                let output_val = output.get(x as isize, y as isize, 0);
+                assert_relative_eq!(input_val, output_val, epsilon = 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_async_training_loss_decreases() {
+        // Test that async training actually reduces loss over iterations
+        let model = DiffLogicCA::gol();
+        let mut config = TrainingConfig::default();
+        config.async_training = true;
+        config.fire_rate = 0.6;
+        config.num_steps = 2;
+        
+        let mut training = TrainingLoop::new(model, config);
+        training.set_seed(42);
+
+        // Create simple input and target
+        let mut input = NGrid::periodic(4, 4, 1);
+        let mut target = NGrid::periodic(4, 4, 1);
+        
+        // Set some pattern
+        for y in 0..4 {
+            for x in 0..4 {
+                input.set(x, y, 0, if (x + y) % 2 == 0 { 1.0 } else { 0.0 });
+                target.set(x, y, 0, if x < 2 { 1.0 } else { 0.0 });
+            }
+        }
+
+        // Train for several steps and track loss
+        let (initial_loss, _) = training.train_step(&input, &target);
+        
+        for _ in 0..10 {
+            training.train_step(&input, &target);
+        }
+        
+        let (final_loss, _) = training.train_step(&input, &target);
+
+        // Loss should decrease (or at least not increase significantly)
+        assert!(
+            final_loss <= initial_loss * 1.1,
+            "Async training should not increase loss significantly: {} -> {}", 
+            initial_loss, final_loss
+        );
+    }
+
+    #[test]
+    fn test_async_training_config() {
+        let config = TrainingConfig::checkerboard_async();
+        assert!(config.async_training);
+        assert_relative_eq!(config.fire_rate, 0.6);
+        assert_eq!(config.num_steps, 50);
+        assert_eq!(config.batch_size, 1);
+        assert_eq!(config.loss_channel, Some(0));
+    }
+
+    #[test]
+    fn test_async_backward_skips_unfired_cells() {
+        // Test that gradients are not accumulated for unfired cells
+        let model = DiffLogicCA::gol();
+        let mut config = TrainingConfig::default();
+        config.async_training = true;
+        config.fire_rate = 0.0; // No cells fire
+        config.num_steps = 1;
+        
+        let mut training = TrainingLoop::new(model, config);
+        training.set_seed(42);
+
+        // Create input and target
+        let mut input = NGrid::periodic(4, 4, 1);
+        let mut target = NGrid::periodic(4, 4, 1);
+        
+        for y in 0..4 {
+            for x in 0..4 {
+                input.set(x, y, 0, 0.5);
+                target.set(x, y, 0, 1.0);
+            }
+        }
+
+        // Get initial weights
+        let weight_before = training.model.perception.kernels[0].layers[0].gates[0].logits[0];
+
+        // Train one step - with fire_rate=0.0, no cells should fire
+        training.train_step(&input, &target);
+
+        // Weights should not change (no gradients from unfired cells)
+        let weight_after = training.model.perception.kernels[0].layers[0].gates[0].logits[0];
+        
+        assert_relative_eq!(
+            weight_before, weight_after, epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_async_forward_reproducible_with_same_seed() {
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let training = TrainingLoop::new(model, config);
+
+        let mut input = NGrid::periodic(4, 4, 1);
+        for y in 0..4 {
+            for x in 0..4 {
+                input.set(x, y, 0, 1.0);
+            }
+        }
+
+        // Two forward passes with same seed should produce same result
+        let mut rng1 = SimpleRng::new(123);
+        let mut rng2 = SimpleRng::new(123);
+        
+        let (output1, act1) = training.forward_grid_soft_async(&input, &mut rng1);
+        let (output2, act2) = training.forward_grid_soft_async(&input, &mut rng2);
+
+        // Outputs should be identical
+        for y in 0..4 {
+            for x in 0..4 {
+                assert_relative_eq!(
+                    output1.get(x as isize, y as isize, 0),
+                    output2.get(x as isize, y as isize, 0),
+                    epsilon = 1e-10
+                );
+            }
+        }
+
+        // Fire masks should be identical
+        let mask1 = act1.fire_mask.unwrap();
+        let mask2 = act2.fire_mask.unwrap();
+        assert_eq!(mask1, mask2);
     }
 }
