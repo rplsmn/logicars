@@ -1929,6 +1929,90 @@ mod tests {
 
     // ==================== Async Training Tests ====================
 
+    /// Build a 5x5 checkerboard input grid (single channel) for eval-rollout tests.
+    fn checkerboard_5x5() -> NGrid {
+        let mut input = NGrid::periodic(5, 5, 1);
+        for y in 0..5 {
+            for x in 0..5 {
+                input.set(x, y, 0, ((x + y) % 2) as Float);
+            }
+        }
+        input
+    }
+
+    #[test]
+    fn test_rollout_async_hard_is_deterministic_per_seed() {
+        // rollout_async_hard must be a pure function of (model, input, num_steps, seed):
+        // re-running with the same seed reproduces the rollout exactly, and two lockstep
+        // TrainingLoops built from the same model agree.
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let training_a = TrainingLoop::new(model.clone(), config.clone());
+        let training_b = TrainingLoop::new(model, config);
+
+        let input = checkerboard_5x5();
+
+        let out_a1 = training_a.rollout_async_hard(&input, 4, 7);
+        let out_a2 = training_a.rollout_async_hard(&input, 4, 7);
+        let out_b = training_b.rollout_async_hard(&input, 4, 7);
+
+        for y in 0..5 {
+            for x in 0..5 {
+                let v = out_a1.get(x as isize, y as isize, 0);
+                assert_eq!(
+                    v,
+                    out_a2.get(x as isize, y as isize, 0),
+                    "same seed must reproduce the rollout exactly"
+                );
+                assert_eq!(
+                    v,
+                    out_b.get(x as isize, y as isize, 0),
+                    "same seed across lockstep loops must agree"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rollout_async_hard_does_not_disturb_training_rng() {
+        // Evaluation via rollout_async_hard uses a LOCAL rng; it must never advance the
+        // training rng stream (self.rng) that seeds training fire-masks. Two lockstep
+        // loops seeded identically must produce the same training-step output even when
+        // one of them runs an eval rollout in between.
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let mut training_a = TrainingLoop::new(model.clone(), config.clone());
+        let mut training_b = TrainingLoop::new(model, config);
+        training_a.set_seed(99);
+        training_b.set_seed(99);
+
+        let input = checkerboard_5x5();
+
+        // B runs an eval rollout (local rng) before the shared training step.
+        let _ = training_b.rollout_async_hard(&input, 4, 12345);
+
+        let out_a = training_a.step_async(&input);
+        let out_b = training_b.step_async(&input);
+
+        for y in 0..5 {
+            for x in 0..5 {
+                assert_eq!(
+                    out_a.get(x as isize, y as isize, 0),
+                    out_b.get(x as isize, y as isize, 0),
+                    "eval rollout must not perturb the training rng stream"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_async_forward_fires_partial_cells() {
         // Create a small model
