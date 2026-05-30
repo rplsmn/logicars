@@ -76,21 +76,38 @@ Notes:
 - --log=FILE appends CSV-style metrics to FILE (header is written when created).
 - --save=PATH writes the final HardCircuit JSON to PATH after training completes.
 
+### Checkerboard — Async / Self-Healing (C=8)
+
+Train a multi-channel CA with fire-rate masking so it forms the checkerboard from a
+random seed and recovers from damage. The binary also runs generalization, self-healing,
+and robustness demos at the end:
+
+```bash
+# Small model, quick smoke test
+cargo run --bin train_checkerboard_async --release -- --small --epochs 200
+
+# Full model (takes a long time; the post-training demos add several minutes on top)
+cargo run --bin train_checkerboard_async --release -- --epochs 1000 --log=async.csv
+```
+
+Async training uses a constant LR (`0.05`) and evaluates by averaging hard accuracy over
+a fixed set of 16 fire-order seeds, so the convergence signal is stable across epochs.
+
 ## Project Structure
 
-- `src/` - Core library code
-  - `grid.rs` - N-bit grid with 1-128 channels
-  - `perception.rs` - Parallel perception kernels
-  - `update.rs` - Update module and DiffLogicCA
-  - `training.rs` - Training loop with sync/async modes
-  - `checkerboard.rs` - Checkerboard experiment
-- `src/bin/` - Training binaries
-- `agents/` - Development documentation
-- `reference/` - Python/JAX reference implementation
+- `src/` — core library code
+  - `gates.rs` — `BinaryOp` (16 boolean ops) and `ProbabilisticGate`
+  - `optimizer.rs` — AdamW
+  - `grid.rs` — N-bit grid with 1–128 channels
+  - `perception.rs` — parallel perception kernels
+  - `update.rs` — update module and `DiffLogicCA`
+  - `training.rs` — training loop with sync/async modes (BPTT, eval rollouts)
+  - `checkerboard.rs` — checkerboard task (models, seeds, loss/accuracy)
+  - `circuit.rs` — `HardCircuit` export (discrete model JSON)
+- `src/bin/` — training/analysis binaries
+- `reference/` — Python/JAX reference implementation and the paper
 
 ## Documentation
 
-See `agents/` folder for detailed development docs:
-- `plan.md` - Development roadmap
-- `implementation-log.md` - Progress and learnings
-- `qa-review.md` - Quality review notes
+See [`AGENTS.md`](AGENTS.md) for the code map, build/test commands, and the contributor
+workflow.
