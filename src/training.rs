@@ -744,6 +744,22 @@ impl TrainingLoop {
         output
     }
 
+    /// Run a full async hard-inference rollout from a fixed seed.
+    ///
+    /// Uses a *local* RNG seeded by `seed`, so evaluation never advances the
+    /// training RNG stream (`self.rng`) that seeds training fire-masks. This is
+    /// what makes reproducible multi-seed evaluation possible: callers can
+    /// average hard accuracy over many independent fire-order draws without
+    /// perturbing training. Takes `&self`.
+    pub fn rollout_async_hard(&self, input: &NGrid, num_steps: usize, seed: u64) -> NGrid {
+        let mut rng = SimpleRng::new(seed);
+        let mut current = input.clone();
+        for _ in 0..num_steps {
+            current = self.run_step_async_hard(&current, &mut rng);
+        }
+        current
+    }
+
     /// Merge sample perception gradients into accumulator
     fn merge_perception_gradients(
         accum: &mut Vec<Vec<Vec<[Float; 16]>>>,
