@@ -167,13 +167,31 @@ fn main() {
         training_loop.config.fire_rate * 100.0
     );
 
-    let mut prev_loss: Option<Float> = None;
-    let mut prev_acc: Option<Float> = None;
-    let mut current_lr = training_loop.config.learning_rate;
-    let mut cooldown_triggered = false;
+    // F2: fixed multi-seed evaluation protocol. A constant eval input plus a fixed set
+    // of fire-order seeds makes averaged hard accuracy comparable across epochs, so the
+    // convergence signal is stable and early-stop can fire on a genuine robustness bar
+    // rather than single-rollout luck. rollout_async_hard uses a LOCAL rng, so evaluation
+    // never disturbs the training rng stream.
+    const NUM_EVAL_SEEDS: u64 = 16;
+    let eval_input = {
+        let mut eval_rng = SimpleRng::new(777);
+        create_random_seed(
+            CHECKERBOARD_ASYNC_GRID_SIZE,
+            CHECKERBOARD_CHANNELS,
+            &mut eval_rng,
+        )
+    };
+    let eval_accuracy = |tl: &TrainingLoop| -> Float {
+        let mut sum = 0.0;
+        for seed in 0..NUM_EVAL_SEEDS {
+            let output = tl.rollout_async_hard(&eval_input, CHECKERBOARD_ASYNC_STEPS, seed);
+            sum += compute_checkerboard_accuracy(&output, &target);
+        }
+        sum / NUM_EVAL_SEEDS as Float
+    };
+
     let mut early_stop_counter = 0;
-    let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
-    let mut finalized = false;
+    let early_stop_patience = 3; // Consecutive perfect-mean-accuracy evals before stopping
 
     for epoch in 0..epochs {
         // Create random seed for this epoch
@@ -189,64 +207,21 @@ fn main() {
         // Evaluate periodically
         let is_last = epoch == epochs - 1;
         if epoch % eval_interval == 0 || is_last {
-            // Run hard evaluation with async steps
-            let test_input = create_random_seed(
-                CHECKERBOARD_ASYNC_GRID_SIZE,
-                CHECKERBOARD_CHANNELS,
-                &mut rng,
-            );
-            let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
-            let accuracy = compute_checkerboard_accuracy(&output, &target);
-
-            // Detect first time reaching 100% accuracy
-            if !cooldown_triggered && accuracy >= 1.0 {
-                cooldown_triggered = true;
-            }
-
-            // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
-            if !cooldown_triggered {
-                if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
-                    if soft_loss > prev_l && accuracy < prev_a {
-                        // Bad jump: decrease LR
-                        current_lr *= 0.95;
-                        training_loop.set_learning_rate(current_lr);
-                    } else if soft_loss < prev_l && accuracy > prev_a {
-                        // Good direction: increase LR
-                        current_lr *= 1.05;
-                        training_loop.set_learning_rate(current_lr);
-                    }
-                }
-            }
-
-            if cooldown_triggered {
-                if current_lr > 0.05 {
-                    current_lr = 0.05;
-                } else {
-                    current_lr *= 0.95;
-                }; // Cool off LR sharply for fine-tuning
-                println!(
-                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
-                    epoch, current_lr
-                );
-                training_loop.set_learning_rate(current_lr);
-            }
-
-            prev_loss = Some(soft_loss);
-            prev_acc = Some(accuracy);
+            // F2: mean hard accuracy over the fixed eval-seed set (constant LR, no schedule).
+            let accuracy = eval_accuracy(&training_loop);
 
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
 
-            // Early stopping: if hard_loss == 0 and acc == 1.0 for N evals, finalize
-            if accuracy >= 1.0 && hard_loss == 0.0 {
+            // Early stopping: mean accuracy perfect across all eval seeds for N evals.
+            if accuracy >= 1.0 {
                 early_stop_counter += 1;
-                if early_stop_counter >= early_stop_patience && !finalized {
+                if early_stop_counter >= early_stop_patience {
                     println!(
-                        "[EARLY STOP] Finalized: hard_loss=0 and acc=100% for {} evals (epoch {})",
-                        early_stop_patience, epoch
+                        "[EARLY STOP] Finalized: mean acc=100% over {} seeds for {} evals (epoch {})",
+                        NUM_EVAL_SEEDS, early_stop_patience, epoch
                     );
-                    finalized = true;
                     break;
                 }
             } else {
@@ -257,16 +232,16 @@ fn main() {
 
             // Print to stdout
             println!(
-                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s] LR={:.5}",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed, current_lr
+                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, mean_acc={:.2}% ({} seeds, best: {:.2}%) [{:.1}s]",
+                epoch, soft_loss, hard_loss, accuracy * 100.0, NUM_EVAL_SEEDS, best_accuracy * 100.0, elapsed
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
                 writeln!(
                     writer,
-                    "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.5}",
-                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, current_lr
+                    "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
+                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed
                 )
                 .unwrap();
                 writer.flush().unwrap();
