@@ -1286,6 +1286,28 @@ impl TrainingLoop {
         }
         self.config.learning_rate = lr;
     }
+
+    /// Set the AdamW weight decay for all optimizers.
+    ///
+    /// Weight decay pulls gate logits toward zero, which caps how saturated a gate can
+    /// become. For deep recurrent (multi-step) hard inference this matters: if gates only
+    /// reach ~0.999 dominant probability, the residual mixing compounds over steps×layers
+    /// and the hard (argmax) rollout diverges from the soft one. Lowering/zeroing wd lets
+    /// logits grow until the argmax solution is the one actually being optimised.
+    pub fn set_weight_decay(&mut self, wd: Float) {
+        for kernel in &mut self.perception_optimizers {
+            for layer in kernel {
+                for opt in layer {
+                    opt.weight_decay = wd;
+                }
+            }
+        }
+        for layer in &mut self.update_optimizers {
+            for opt in layer {
+                opt.weight_decay = wd;
+            }
+        }
+    }
 }
 
 /// Intermediate activations for backpropagation

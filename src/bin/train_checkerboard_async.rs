@@ -65,6 +65,22 @@ fn main() {
         .and_then(|a| a.strip_prefix("--save="))
         .map(|s| s.to_string());
 
+    // DIAGNOSTIC: --lr=F overrides the constant learning rate (default = config value, 0.05).
+    // Used to test whether the soft/hard gap is closed by driving gate logits to saturate.
+    let lr_override: Option<Float> = args
+        .iter()
+        .find(|a| a.starts_with("--lr="))
+        .and_then(|a| a.strip_prefix("--lr="))
+        .and_then(|s| s.parse().ok());
+
+    // DIAGNOSTIC: --wd=F overrides AdamW weight decay (default 0.01). Weight decay caps gate
+    // saturation; lowering it lets logits grow so the hard argmax rollout matches the soft one.
+    let wd_override: Option<Float> = args
+        .iter()
+        .find(|a| a.starts_with("--wd="))
+        .and_then(|a| a.strip_prefix("--wd="))
+        .and_then(|s| s.parse().ok());
+
     // Create model - async uses deeper network (14×256 vs 10×256 for sync)
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
@@ -113,6 +129,39 @@ fn main() {
     let mut training_loop = TrainingLoop::new(model, config);
     training_loop.set_seed(42); // For reproducibility
 
+    // DIAGNOSTIC: optional constant-LR override.
+    if let Some(lr) = lr_override {
+        training_loop.set_learning_rate(lr);
+        println!("[DIAG] Learning rate overridden to {:.5}", lr);
+    }
+    if let Some(wd) = wd_override {
+        training_loop.set_weight_decay(wd);
+        println!("[DIAG] Weight decay overridden to {:.5}", wd);
+    }
+
+    // DIAGNOSTIC: mean dominant-gate probability across the whole model.
+    // 1/16 = 0.0625 means gates are uniform (unsaturated); ->1.0 means each gate has
+    // committed to a single operation, i.e. soft execution ~ hard argmax.
+    fn mean_saturation(tl: &TrainingLoop) -> Float {
+        let mut sum = 0.0;
+        let mut n = 0usize;
+        for kernel in &tl.model.perception.kernels {
+            for layer in &kernel.layers {
+                for gate in &layer.gates {
+                    sum += gate.dominant_operation().1;
+                    n += 1;
+                }
+            }
+        }
+        for layer in &tl.model.update.layers {
+            for gate in &layer.gates {
+                sum += gate.dominant_operation().1;
+                n += 1;
+            }
+        }
+        sum / n as Float
+    }
+
     // Create target pattern
     let target = create_checkerboard(
         CHECKERBOARD_ASYNC_GRID_SIZE,
@@ -156,7 +205,7 @@ fn main() {
         writeln!(writer, "# Fire rate: {}", training_loop.config.fire_rate).unwrap();
         writeln!(
             writer,
-            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s"
+            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s,saturation"
         )
         .unwrap();
         writer.flush().unwrap();
@@ -231,17 +280,18 @@ fn main() {
             let elapsed = start.elapsed().as_secs_f32();
 
             // Print to stdout
+            let saturation = mean_saturation(&training_loop);
             println!(
-                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, mean_acc={:.2}% ({} seeds, best: {:.2}%) [{:.1}s]",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, NUM_EVAL_SEEDS, best_accuracy * 100.0, elapsed
+                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, mean_acc={:.2}% ({} seeds, best: {:.2}%) sat={:.3} [{:.1}s]",
+                epoch, soft_loss, hard_loss, accuracy * 100.0, NUM_EVAL_SEEDS, best_accuracy * 100.0, saturation, elapsed
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
                 writeln!(
                     writer,
-                    "{},{:.6},{:.4},{:.6},{:.6},{:.1}",
-                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed
+                    "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.4}",
+                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, saturation
                 )
                 .unwrap();
                 writer.flush().unwrap();
