@@ -18,8 +18,10 @@
 //!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
-    compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
-    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, NGrid, SimpleRng,
+    compute_checkerboard_accuracy, create_checkerboard,
+    create_checkerboard_async_perception, create_checkerboard_async_update,
+    create_checkerboard_async_update_seeded, create_checkerboard_perception, create_random_seed,
+    create_small_checkerboard_model, DiffLogicCA, Float, HardCircuit, NGrid, SimpleRng,
     TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
@@ -81,13 +83,39 @@ fn main() {
         .and_then(|a| a.strip_prefix("--wd="))
         .and_then(|s| s.parse().ok());
 
+    // ABLATION: --wiring=MODE selects which parts of the wiring are randomly permuted, to
+    // attribute the async-checkerboard fix. Modes:
+    //   permuted        (default) perception permuted+distinct kernels, update permuted
+    //   deterministic   old fixed wiring (identical kernels, structured update) — pre-fix model
+    //   update-only     deterministic perception (identical kernels), permuted update
+    //   perception-only permuted+distinct perception, deterministic update
+    let wiring_mode: String = args
+        .iter()
+        .find(|a| a.starts_with("--wiring="))
+        .and_then(|a| a.strip_prefix("--wiring="))
+        .unwrap_or("permuted")
+        .to_string();
+
     // Create model - async uses deeper network (14×256 vs 10×256 for sync)
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
         create_small_checkerboard_model()
     } else {
-        println!("Using ASYNC checkerboard model (14×256 hidden layers)...\n");
-        create_checkerboard_async_model()
+        println!(
+            "Using ASYNC checkerboard model (14×256 hidden layers), wiring={}...\n",
+            wiring_mode
+        );
+        let perception = match wiring_mode.as_str() {
+            "deterministic" | "update-only" => create_checkerboard_perception(),
+            "permuted" | "perception-only" => create_checkerboard_async_perception(),
+            other => panic!("unknown --wiring={other}"),
+        };
+        let update = match wiring_mode.as_str() {
+            "deterministic" | "perception-only" => create_checkerboard_async_update(),
+            "permuted" | "update-only" => create_checkerboard_async_update_seeded(),
+            other => panic!("unknown --wiring={other}"),
+        };
+        DiffLogicCA::new(perception, update)
     };
 
     println!("Model architecture:");

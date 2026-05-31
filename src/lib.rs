@@ -69,6 +69,8 @@ pub use checkerboard::{
     create_checkerboard_model,
     create_small_checkerboard_model,
     create_checkerboard_async_update,
+    create_checkerboard_async_update_seeded,
+    create_checkerboard_async_perception,
     create_checkerboard_async_model,
     compute_checkerboard_loss,
     compute_checkerboard_accuracy,
