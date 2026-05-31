@@ -165,30 +165,62 @@ pub fn create_small_checkerboard_model() -> DiffLogicCA {
 ///
 /// Reference: diffLogic_CA.ipynb line 1692
 pub fn create_checkerboard_async_update() -> UpdateModule {
+    UpdateModule::new(&checkerboard_async_update_layers())
+}
+
+/// Seed for the async checkerboard's randomly-permuted wiring.
+///
+/// The reference difflogic implementation randomly permutes every layer's connections; the
+/// Rust port originally used fixed deterministic wiring. That poorly-mixed graph is the leading
+/// suspect for async checkerboard solving the soft objective while its hard rollout stays at
+/// chance. Matches the reference's training seed (23) for reproducibility.
+pub const CHECKERBOARD_ASYNC_WIRING_SEED: u64 = 23;
+
+fn checkerboard_async_update_layers() -> Vec<usize> {
     // Input: center(8) + kernels(16) * output_bits(2) * channels(8) = 264
-    let input_size = CHECKERBOARD_CHANNELS
-        + CHECKERBOARD_KERNELS * 2 * CHECKERBOARD_CHANNELS;
-
+    let input_size = CHECKERBOARD_CHANNELS + CHECKERBOARD_KERNELS * 2 * CHECKERBOARD_CHANNELS;
     let mut layer_sizes = vec![input_size]; // 264
-
     // 14 layers of 256 (async uses deeper network than sync's 10 layers)
     for _ in 0..14 {
         layer_sizes.push(256);
     }
-
     // Reduction layers
     layer_sizes.extend_from_slice(&[128, 64, 32, 16, 8, CHECKERBOARD_CHANNELS]);
+    layer_sizes
+}
 
-    UpdateModule::new(&layer_sizes)
+/// Async perception with randomly-permuted wiring (reference behaviour).
+pub fn create_checkerboard_async_perception() -> PerceptionModule {
+    PerceptionModule::new_seeded(
+        CHECKERBOARD_CHANNELS,
+        CHECKERBOARD_KERNELS,
+        &[9, 8, 4, 2],
+        &[
+            ConnectionType::FirstKernel,
+            ConnectionType::Unique,
+            ConnectionType::Unique,
+        ],
+        CHECKERBOARD_ASYNC_WIRING_SEED,
+    )
+}
+
+/// Async update with randomly-permuted wiring (reference behaviour).
+pub fn create_checkerboard_async_update_seeded() -> UpdateModule {
+    // Offset the seed so the update wiring stream is independent of perception's.
+    UpdateModule::new_seeded(
+        &checkerboard_async_update_layers(),
+        CHECKERBOARD_ASYNC_WIRING_SEED.wrapping_add(1),
+    )
 }
 
 /// Create complete DiffLogicCA for async checkerboard experiment.
 ///
 /// Uses deeper network architecture optimized for async training with fire rate masking.
-/// Reference uses 14×256 hidden layers for async vs 10×256 for sync.
+/// Reference uses 14×256 hidden layers for async vs 10×256 for sync, and randomly-permuted
+/// per-layer connections (see [`CHECKERBOARD_ASYNC_WIRING_SEED`]).
 pub fn create_checkerboard_async_model() -> DiffLogicCA {
-    let perception = create_checkerboard_perception();
-    let update = create_checkerboard_async_update();
+    let perception = create_checkerboard_async_perception();
+    let update = create_checkerboard_async_update_seeded();
     DiffLogicCA::new(perception, update)
 }
 

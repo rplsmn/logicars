@@ -14,6 +14,7 @@ use crate::Float;
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
 use crate::gates::{BinaryOp, ProbabilisticGate};
+use crate::training::SimpleRng;
 
 /// Connection topology types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +135,39 @@ pub fn generate_connections(conn_type: ConnectionType, in_dim: usize, out_dim: u
     }
 }
 
+/// Randomly permute the gate ordering of a wire set (in place of the reference's
+/// `a = a[perm]; b = b[perm]`).
+///
+/// The reference difflogic implementation permutes every layer's `(a, b)` assignment
+/// with a fresh PRNG key (`get_unique_connections`/`get_moore_connections`). The Rust port
+/// originally used fixed deterministic wiring ("we skip that"), which yields a highly local,
+/// poorly-mixed computation graph — the leading suspect for why async checkerboard converges
+/// in the soft objective but its hard (argmax) rollout never aligns. This restores the random
+/// per-layer permutation. The same permutation is applied to `a` and `b` so each gate keeps
+/// its input *pair*; only the gate slot order (and hence the downstream wiring it feeds) changes.
+fn permute_wires(wires: Wires, rng: &mut SimpleRng) -> Wires {
+    let n = wires.num_gates();
+    // Fisher–Yates on the identity permutation.
+    let mut perm: Vec<usize> = (0..n).collect();
+    for i in (1..n).rev() {
+        let j = (rng.next_u64() % (i as u64 + 1)) as usize;
+        perm.swap(i, j);
+    }
+    let a = perm.iter().map(|&p| wires.a[p]).collect();
+    let b = perm.iter().map(|&p| wires.b[p]).collect();
+    Wires::new(a, b)
+}
+
+/// Generate connections then apply a random gate-order permutation (reference behaviour).
+pub fn generate_connections_seeded(
+    conn_type: ConnectionType,
+    in_dim: usize,
+    out_dim: usize,
+    rng: &mut SimpleRng,
+) -> Wires {
+    permute_wires(generate_connections(conn_type, in_dim, out_dim), rng)
+}
+
 /// A single gate layer with fixed wiring
 #[derive(Debug, Clone)]
 pub struct GateLayer {
@@ -250,6 +284,28 @@ impl PerceptionKernel {
         Self { layers, input_size }
     }
 
+    /// Create a perception kernel with randomly-permuted per-layer wiring (reference behaviour).
+    ///
+    /// Identical to `new` except each layer's connections are permuted from the supplied RNG.
+    pub fn new_seeded(
+        layer_sizes: &[usize],
+        connection_types: &[ConnectionType],
+        rng: &mut SimpleRng,
+    ) -> Self {
+        assert!(layer_sizes.len() >= 2, "Need at least input and output layers");
+        assert_eq!(layer_sizes.len() - 1, connection_types.len());
+
+        let input_size = layer_sizes[0];
+        let mut layers = Vec::new();
+        for i in 0..(layer_sizes.len() - 1) {
+            let in_dim = layer_sizes[i];
+            let out_dim = layer_sizes[i + 1];
+            let wires = generate_connections_seeded(connection_types[i], in_dim, out_dim, rng);
+            layers.push(GateLayer::new(out_dim, wires));
+        }
+        Self { layers, input_size }
+    }
+
     /// Create GoL perception kernel: [9→8→4→2→1]
     pub fn gol_kernel() -> Self {
         Self::new(
@@ -358,6 +414,35 @@ impl PerceptionModule {
 
         let kernels: Vec<PerceptionKernel> = (0..num_kernels)
             .map(|_| PerceptionKernel::new(layer_sizes, connection_types))
+            .collect();
+
+        Self {
+            channels,
+            num_kernels,
+            kernels,
+            layer_sizes: layer_sizes.to_vec(),
+            connection_types: connection_types.to_vec(),
+        }
+    }
+
+    /// Create a perception module with randomly-permuted wiring (reference behaviour).
+    ///
+    /// Each kernel is built from its own draw of the shared RNG stream, so kernels also get
+    /// *distinct* wiring — a strict superset of the reference (which shares one permuted wiring
+    /// across kernels) that additionally breaks the kernel-symmetry the reference leaves intact.
+    pub fn new_seeded(
+        channels: usize,
+        num_kernels: usize,
+        layer_sizes: &[usize],
+        connection_types: &[ConnectionType],
+        seed: u64,
+    ) -> Self {
+        assert!(channels >= 1 && channels <= 128);
+        assert!(num_kernels >= 1);
+
+        let mut rng = SimpleRng::new(seed);
+        let kernels: Vec<PerceptionKernel> = (0..num_kernels)
+            .map(|_| PerceptionKernel::new_seeded(layer_sizes, connection_types, &mut rng))
             .collect();
 
         Self {
@@ -914,6 +999,51 @@ mod tests {
     use approx::assert_relative_eq;
 
     // ==================== Connection Tests ====================
+
+    #[test]
+    fn test_permute_wires_preserves_input_pairs() {
+        // Permutation must reorder gate slots while keeping each gate's (a, b) input pair
+        // intact — i.e. the multiset of pairs is unchanged, only their order differs.
+        let base = unique_connections(16, 12);
+        let mut rng = SimpleRng::new(42);
+        let permuted = permute_wires(base.clone(), &mut rng);
+
+        assert_eq!(permuted.num_gates(), base.num_gates());
+
+        let mut base_pairs: Vec<(usize, usize)> =
+            base.a.iter().zip(base.b.iter()).map(|(&a, &b)| (a, b)).collect();
+        let mut perm_pairs: Vec<(usize, usize)> =
+            permuted.a.iter().zip(permuted.b.iter()).map(|(&a, &b)| (a, b)).collect();
+        base_pairs.sort_unstable();
+        perm_pairs.sort_unstable();
+        assert_eq!(base_pairs, perm_pairs, "permutation must preserve the (a,b) pair multiset");
+
+        // With a non-trivial size the order should actually change (not the identity).
+        let order_changed = permuted.a != base.a || permuted.b != base.b;
+        assert!(order_changed, "permutation should change gate order for this seed/size");
+    }
+
+    #[test]
+    fn test_seeded_perception_kernels_are_distinct() {
+        // The deterministic constructor makes all kernels identical clones; the seeded one
+        // must give kernels distinct wiring (the symmetry-breaking the fixed port lacked).
+        let layers = [9, 8, 4, 2];
+        let conns = [
+            ConnectionType::FirstKernel,
+            ConnectionType::Unique,
+            ConnectionType::Unique,
+        ];
+        let m = PerceptionModule::new_seeded(8, 16, &layers, &conns, 23);
+        // Compare the last layer's wiring of kernel 0 vs kernel 1.
+        let k0 = &m.kernels[0].layers.last().unwrap().wires;
+        let k1 = &m.kernels[1].layers.last().unwrap().wires;
+        assert!(
+            k0.a != k1.a || k0.b != k1.b,
+            "seeded kernels should have distinct wiring"
+        );
+        // Forward pass still produces the right output dimension.
+        assert_eq!(m.output_size(), 8 + 16 * 2 * 8);
+    }
 
     #[test]
     fn test_first_kernel_connections() {

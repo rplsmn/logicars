@@ -19,7 +19,7 @@
 
 use logicars::{
     compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
-    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, SimpleRng,
+    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, NGrid, SimpleRng,
     TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
@@ -216,24 +216,29 @@ fn main() {
         training_loop.config.fire_rate * 100.0
     );
 
-    // F2: fixed multi-seed evaluation protocol. A constant eval input plus a fixed set
-    // of fire-order seeds makes averaged hard accuracy comparable across epochs, so the
-    // convergence signal is stable and early-stop can fire on a genuine robustness bar
-    // rather than single-rollout luck. rollout_async_hard uses a LOCAL rng, so evaluation
-    // never disturbs the training rng stream.
+    // F2: multi-seed evaluation protocol. Mean hard accuracy over a fixed set of distinct
+    // *input* seeds (each its own random binary grid), each rolled out under its own
+    // fire-order draw. This measures generalisation across the input distribution the model is
+    // trained on (random seeds -> checkerboard) rather than robustness on a single fixed input.
+    // The eval-seed set is held constant across epochs so the metric is comparable, and
+    // rollout_async_hard uses a LOCAL rng so evaluation never disturbs the training rng stream.
     const NUM_EVAL_SEEDS: u64 = 16;
-    let eval_input = {
-        let mut eval_rng = SimpleRng::new(777);
-        create_random_seed(
-            CHECKERBOARD_ASYNC_GRID_SIZE,
-            CHECKERBOARD_CHANNELS,
-            &mut eval_rng,
-        )
-    };
+    let eval_inputs: Vec<NGrid> = (0..NUM_EVAL_SEEDS)
+        .map(|s| {
+            // Distinct, reproducible input per eval seed (offset to avoid colliding with the
+            // training input stream's seed 23).
+            let mut eval_rng = SimpleRng::new(1000 + s);
+            create_random_seed(
+                CHECKERBOARD_ASYNC_GRID_SIZE,
+                CHECKERBOARD_CHANNELS,
+                &mut eval_rng,
+            )
+        })
+        .collect();
     let eval_accuracy = |tl: &TrainingLoop| -> Float {
         let mut sum = 0.0;
-        for seed in 0..NUM_EVAL_SEEDS {
-            let output = tl.rollout_async_hard(&eval_input, CHECKERBOARD_ASYNC_STEPS, seed);
+        for (i, input) in eval_inputs.iter().enumerate() {
+            let output = tl.rollout_async_hard(input, CHECKERBOARD_ASYNC_STEPS, i as u64);
             sum += compute_checkerboard_accuracy(&output, &target);
         }
         sum / NUM_EVAL_SEEDS as Float
