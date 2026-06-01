@@ -18,8 +18,10 @@
 //!   --save=PATH       Save trained model as HardCircuit JSON at end of training
 
 use logicars::{
-    compute_checkerboard_accuracy, create_checkerboard, create_checkerboard_async_model,
-    create_random_seed, create_small_checkerboard_model, Float, HardCircuit, SimpleRng,
+    compute_checkerboard_accuracy, create_checkerboard,
+    create_checkerboard_async_perception, create_checkerboard_async_update,
+    create_checkerboard_async_update_seeded, create_checkerboard_perception, create_random_seed,
+    create_small_checkerboard_model, DiffLogicCA, Float, HardCircuit, NGrid, SimpleRng,
     TrainingConfig, TrainingLoop, CHECKERBOARD_ASYNC_GRID_SIZE, CHECKERBOARD_ASYNC_STEPS,
     CHECKERBOARD_CHANNELS, CHECKERBOARD_SQUARE_SIZE,
 };
@@ -65,13 +67,55 @@ fn main() {
         .and_then(|a| a.strip_prefix("--save="))
         .map(|s| s.to_string());
 
+    // DIAGNOSTIC: --lr=F overrides the constant learning rate (default = config value, 0.05).
+    // Used to test whether the soft/hard gap is closed by driving gate logits to saturate.
+    let lr_override: Option<Float> = args
+        .iter()
+        .find(|a| a.starts_with("--lr="))
+        .and_then(|a| a.strip_prefix("--lr="))
+        .and_then(|s| s.parse().ok());
+
+    // DIAGNOSTIC: --wd=F overrides AdamW weight decay (default 0.01). Weight decay caps gate
+    // saturation; lowering it lets logits grow so the hard argmax rollout matches the soft one.
+    let wd_override: Option<Float> = args
+        .iter()
+        .find(|a| a.starts_with("--wd="))
+        .and_then(|a| a.strip_prefix("--wd="))
+        .and_then(|s| s.parse().ok());
+
+    // ABLATION: --wiring=MODE selects which parts of the wiring are randomly permuted, to
+    // attribute the async-checkerboard fix. Modes:
+    //   permuted        (default) perception permuted+distinct kernels, update permuted
+    //   deterministic   old fixed wiring (identical kernels, structured update) — pre-fix model
+    //   update-only     deterministic perception (identical kernels), permuted update
+    //   perception-only permuted+distinct perception, deterministic update
+    let wiring_mode: String = args
+        .iter()
+        .find(|a| a.starts_with("--wiring="))
+        .and_then(|a| a.strip_prefix("--wiring="))
+        .unwrap_or("permuted")
+        .to_string();
+
     // Create model - async uses deeper network (14×256 vs 10×256 for sync)
     let model = if use_small_model {
         println!("Using SMALL model for fast testing...\n");
         create_small_checkerboard_model()
     } else {
-        println!("Using ASYNC checkerboard model (14×256 hidden layers)...\n");
-        create_checkerboard_async_model()
+        println!(
+            "Using ASYNC checkerboard model (14×256 hidden layers), wiring={}...\n",
+            wiring_mode
+        );
+        let perception = match wiring_mode.as_str() {
+            "deterministic" | "update-only" => create_checkerboard_perception(),
+            "permuted" | "perception-only" => create_checkerboard_async_perception(),
+            other => panic!("unknown --wiring={other}"),
+        };
+        let update = match wiring_mode.as_str() {
+            "deterministic" | "perception-only" => create_checkerboard_async_update(),
+            "permuted" | "update-only" => create_checkerboard_async_update_seeded(),
+            other => panic!("unknown --wiring={other}"),
+        };
+        DiffLogicCA::new(perception, update)
     };
 
     println!("Model architecture:");
@@ -112,6 +156,39 @@ fn main() {
     // Create training loop
     let mut training_loop = TrainingLoop::new(model, config);
     training_loop.set_seed(42); // For reproducibility
+
+    // DIAGNOSTIC: optional constant-LR override.
+    if let Some(lr) = lr_override {
+        training_loop.set_learning_rate(lr);
+        println!("[DIAG] Learning rate overridden to {:.5}", lr);
+    }
+    if let Some(wd) = wd_override {
+        training_loop.set_weight_decay(wd);
+        println!("[DIAG] Weight decay overridden to {:.5}", wd);
+    }
+
+    // DIAGNOSTIC: mean dominant-gate probability across the whole model.
+    // 1/16 = 0.0625 means gates are uniform (unsaturated); ->1.0 means each gate has
+    // committed to a single operation, i.e. soft execution ~ hard argmax.
+    fn mean_saturation(tl: &TrainingLoop) -> Float {
+        let mut sum = 0.0;
+        let mut n = 0usize;
+        for kernel in &tl.model.perception.kernels {
+            for layer in &kernel.layers {
+                for gate in &layer.gates {
+                    sum += gate.dominant_operation().1;
+                    n += 1;
+                }
+            }
+        }
+        for layer in &tl.model.update.layers {
+            for gate in &layer.gates {
+                sum += gate.dominant_operation().1;
+                n += 1;
+            }
+        }
+        sum / n as Float
+    }
 
     // Create target pattern
     let target = create_checkerboard(
@@ -156,7 +233,7 @@ fn main() {
         writeln!(writer, "# Fire rate: {}", training_loop.config.fire_rate).unwrap();
         writeln!(
             writer,
-            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s"
+            "# epoch,soft_loss,hard_loss,accuracy,best_accuracy,elapsed_s,saturation"
         )
         .unwrap();
         writer.flush().unwrap();
@@ -167,13 +244,36 @@ fn main() {
         training_loop.config.fire_rate * 100.0
     );
 
-    let mut prev_loss: Option<Float> = None;
-    let mut prev_acc: Option<Float> = None;
-    let mut current_lr = training_loop.config.learning_rate;
-    let mut cooldown_triggered = false;
+    // F2: multi-seed evaluation protocol. Mean hard accuracy over a fixed set of distinct
+    // *input* seeds (each its own random binary grid), each rolled out under its own
+    // fire-order draw. This measures generalisation across the input distribution the model is
+    // trained on (random seeds -> checkerboard) rather than robustness on a single fixed input.
+    // The eval-seed set is held constant across epochs so the metric is comparable, and
+    // rollout_async_hard uses a LOCAL rng so evaluation never disturbs the training rng stream.
+    const NUM_EVAL_SEEDS: u64 = 16;
+    let eval_inputs: Vec<NGrid> = (0..NUM_EVAL_SEEDS)
+        .map(|s| {
+            // Distinct, reproducible input per eval seed (offset to avoid colliding with the
+            // training input stream's seed 23).
+            let mut eval_rng = SimpleRng::new(1000 + s);
+            create_random_seed(
+                CHECKERBOARD_ASYNC_GRID_SIZE,
+                CHECKERBOARD_CHANNELS,
+                &mut eval_rng,
+            )
+        })
+        .collect();
+    let eval_accuracy = |tl: &TrainingLoop| -> Float {
+        let mut sum = 0.0;
+        for (i, input) in eval_inputs.iter().enumerate() {
+            let output = tl.rollout_async_hard(input, CHECKERBOARD_ASYNC_STEPS, i as u64);
+            sum += compute_checkerboard_accuracy(&output, &target);
+        }
+        sum / NUM_EVAL_SEEDS as Float
+    };
+
     let mut early_stop_counter = 0;
-    let early_stop_patience = 3; // Number of evals with perfect acc/loss before stopping
-    let mut finalized = false;
+    let early_stop_patience = 3; // Consecutive perfect-mean-accuracy evals before stopping
 
     for epoch in 0..epochs {
         // Create random seed for this epoch
@@ -189,64 +289,21 @@ fn main() {
         // Evaluate periodically
         let is_last = epoch == epochs - 1;
         if epoch % eval_interval == 0 || is_last {
-            // Run hard evaluation with async steps
-            let test_input = create_random_seed(
-                CHECKERBOARD_ASYNC_GRID_SIZE,
-                CHECKERBOARD_CHANNELS,
-                &mut rng,
-            );
-            let output = training_loop.run_steps(&test_input, CHECKERBOARD_ASYNC_STEPS);
-            let accuracy = compute_checkerboard_accuracy(&output, &target);
-
-            // Detect first time reaching 100% accuracy
-            if !cooldown_triggered && accuracy >= 1.0 {
-                cooldown_triggered = true;
-            }
-
-            // LR schedule: adjust based on loss/accuracy trend (only before cooldown)
-            if !cooldown_triggered {
-                if let (Some(prev_l), Some(prev_a)) = (prev_loss, prev_acc) {
-                    if soft_loss > prev_l && accuracy < prev_a {
-                        // Bad jump: decrease LR
-                        current_lr *= 0.95;
-                        training_loop.set_learning_rate(current_lr);
-                    } else if soft_loss < prev_l && accuracy > prev_a {
-                        // Good direction: increase LR
-                        current_lr *= 1.05;
-                        training_loop.set_learning_rate(current_lr);
-                    }
-                }
-            }
-
-            if cooldown_triggered {
-                if current_lr > 0.05 {
-                    current_lr = 0.05;
-                } else {
-                    current_lr *= 0.95;
-                }; // Cool off LR sharply for fine-tuning
-                println!(
-                    "[LR SCHEDULE] 100% accuracy reached at epoch {}. LR cooled to {:.5}",
-                    epoch, current_lr
-                );
-                training_loop.set_learning_rate(current_lr);
-            }
-
-            prev_loss = Some(soft_loss);
-            prev_acc = Some(accuracy);
+            // F2: mean hard accuracy over the fixed eval-seed set (constant LR, no schedule).
+            let accuracy = eval_accuracy(&training_loop);
 
             if accuracy > best_accuracy {
                 best_accuracy = accuracy;
             }
 
-            // Early stopping: if hard_loss == 0 and acc == 1.0 for N evals, finalize
-            if accuracy >= 1.0 && hard_loss == 0.0 {
+            // Early stopping: mean accuracy perfect across all eval seeds for N evals.
+            if accuracy >= 1.0 {
                 early_stop_counter += 1;
-                if early_stop_counter >= early_stop_patience && !finalized {
+                if early_stop_counter >= early_stop_patience {
                     println!(
-                        "[EARLY STOP] Finalized: hard_loss=0 and acc=100% for {} evals (epoch {})",
-                        early_stop_patience, epoch
+                        "[EARLY STOP] Finalized: mean acc=100% over {} seeds for {} evals (epoch {})",
+                        NUM_EVAL_SEEDS, early_stop_patience, epoch
                     );
-                    finalized = true;
                     break;
                 }
             } else {
@@ -256,17 +313,18 @@ fn main() {
             let elapsed = start.elapsed().as_secs_f32();
 
             // Print to stdout
+            let saturation = mean_saturation(&training_loop);
             println!(
-                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, acc={:.2}% (best: {:.2}%) [{:.1}s] LR={:.5}",
-                epoch, soft_loss, hard_loss, accuracy * 100.0, best_accuracy * 100.0, elapsed, current_lr
+                "Epoch {:4}: soft_loss={:.4}, hard_loss={:.4}, mean_acc={:.2}% ({} seeds, best: {:.2}%) sat={:.3} [{:.1}s]",
+                epoch, soft_loss, hard_loss, accuracy * 100.0, NUM_EVAL_SEEDS, best_accuracy * 100.0, saturation, elapsed
             );
 
             // Write to log file
             if let Some(ref mut writer) = log_writer {
                 writeln!(
                     writer,
-                    "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.5}",
-                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, current_lr
+                    "{},{:.6},{:.4},{:.6},{:.6},{:.1},{:.4}",
+                    epoch, soft_loss, hard_loss, accuracy, best_accuracy, elapsed, saturation
                 )
                 .unwrap();
                 writer.flush().unwrap();

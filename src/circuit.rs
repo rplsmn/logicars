@@ -394,6 +394,26 @@ impl HardCircuit {
         current
     }
 
+    /// One asynchronous inference step: only cells that "fire" (probability `fire_rate`)
+    /// update; the rest keep their current state. Mirrors the training-time async rollout
+    /// (`run_step_async_hard`) and the reference's `run_async`, which is how the async
+    /// checkerboard model is meant to be run at inference (self-healing emerges from it).
+    pub fn step_async(&self, grid: &NGrid, fire_rate: Float, rng: &mut crate::SimpleRng) -> NGrid {
+        let mut output = grid.clone();
+        for y in 0..grid.height {
+            for x in 0..grid.width {
+                if rng.next_bool(fire_rate) {
+                    let neighborhood = self.extract_neighborhood(grid, x, y);
+                    let new_state = self.execute(&neighborhood);
+                    for c in 0..self.channels {
+                        output.set(x, y, c, if new_state[c] { 1.0 } else { 0.0 });
+                    }
+                }
+            }
+        }
+        output
+    }
+
     /// Extract 3×3 neighborhood as boolean vector (9 cells × channels)
     fn extract_neighborhood(&self, grid: &NGrid, x: usize, y: usize) -> Vec<bool> {
         let mut result = Vec::with_capacity(9 * self.channels);

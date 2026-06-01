@@ -744,6 +744,22 @@ impl TrainingLoop {
         output
     }
 
+    /// Run a full async hard-inference rollout from a fixed seed.
+    ///
+    /// Uses a *local* RNG seeded by `seed`, so evaluation never advances the
+    /// training RNG stream (`self.rng`) that seeds training fire-masks. This is
+    /// what makes reproducible multi-seed evaluation possible: callers can
+    /// average hard accuracy over many independent fire-order draws without
+    /// perturbing training. Takes `&self`.
+    pub fn rollout_async_hard(&self, input: &NGrid, num_steps: usize, seed: u64) -> NGrid {
+        let mut rng = SimpleRng::new(seed);
+        let mut current = input.clone();
+        for _ in 0..num_steps {
+            current = self.run_step_async_hard(&current, &mut rng);
+        }
+        current
+    }
+
     /// Merge sample perception gradients into accumulator
     fn merge_perception_gradients(
         accum: &mut Vec<Vec<Vec<[Float; 16]>>>,
@@ -1269,6 +1285,28 @@ impl TrainingLoop {
             }
         }
         self.config.learning_rate = lr;
+    }
+
+    /// Set the AdamW weight decay for all optimizers.
+    ///
+    /// Weight decay pulls gate logits toward zero, which caps how saturated a gate can
+    /// become. For deep recurrent (multi-step) hard inference this matters: if gates only
+    /// reach ~0.999 dominant probability, the residual mixing compounds over steps×layers
+    /// and the hard (argmax) rollout diverges from the soft one. Lowering/zeroing wd lets
+    /// logits grow until the argmax solution is the one actually being optimised.
+    pub fn set_weight_decay(&mut self, wd: Float) {
+        for kernel in &mut self.perception_optimizers {
+            for layer in kernel {
+                for opt in layer {
+                    opt.weight_decay = wd;
+                }
+            }
+        }
+        for layer in &mut self.update_optimizers {
+            for opt in layer {
+                opt.weight_decay = wd;
+            }
+        }
     }
 }
 
@@ -1913,6 +1951,90 @@ mod tests {
 
     // ==================== Async Training Tests ====================
 
+    /// Build a 5x5 checkerboard input grid (single channel) for eval-rollout tests.
+    fn checkerboard_5x5() -> NGrid {
+        let mut input = NGrid::periodic(5, 5, 1);
+        for y in 0..5 {
+            for x in 0..5 {
+                input.set(x, y, 0, ((x + y) % 2) as Float);
+            }
+        }
+        input
+    }
+
+    #[test]
+    fn test_rollout_async_hard_is_deterministic_per_seed() {
+        // rollout_async_hard must be a pure function of (model, input, num_steps, seed):
+        // re-running with the same seed reproduces the rollout exactly, and two lockstep
+        // TrainingLoops built from the same model agree.
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let training_a = TrainingLoop::new(model.clone(), config.clone());
+        let training_b = TrainingLoop::new(model, config);
+
+        let input = checkerboard_5x5();
+
+        let out_a1 = training_a.rollout_async_hard(&input, 4, 7);
+        let out_a2 = training_a.rollout_async_hard(&input, 4, 7);
+        let out_b = training_b.rollout_async_hard(&input, 4, 7);
+
+        for y in 0..5 {
+            for x in 0..5 {
+                let v = out_a1.get(x as isize, y as isize, 0);
+                assert_eq!(
+                    v,
+                    out_a2.get(x as isize, y as isize, 0),
+                    "same seed must reproduce the rollout exactly"
+                );
+                assert_eq!(
+                    v,
+                    out_b.get(x as isize, y as isize, 0),
+                    "same seed across lockstep loops must agree"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rollout_async_hard_does_not_disturb_training_rng() {
+        // Evaluation via rollout_async_hard uses a LOCAL rng; it must never advance the
+        // training rng stream (self.rng) that seeds training fire-masks. Two lockstep
+        // loops seeded identically must produce the same training-step output even when
+        // one of them runs an eval rollout in between.
+        let model = DiffLogicCA::gol();
+        let config = TrainingConfig {
+            async_training: true,
+            fire_rate: 0.5,
+            ..TrainingConfig::default()
+        };
+        let mut training_a = TrainingLoop::new(model.clone(), config.clone());
+        let mut training_b = TrainingLoop::new(model, config);
+        training_a.set_seed(99);
+        training_b.set_seed(99);
+
+        let input = checkerboard_5x5();
+
+        // B runs an eval rollout (local rng) before the shared training step.
+        let _ = training_b.rollout_async_hard(&input, 4, 12345);
+
+        let out_a = training_a.step_async(&input);
+        let out_b = training_b.step_async(&input);
+
+        for y in 0..5 {
+            for x in 0..5 {
+                assert_eq!(
+                    out_a.get(x as isize, y as isize, 0),
+                    out_b.get(x as isize, y as isize, 0),
+                    "eval rollout must not perturb the training rng stream"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_async_forward_fires_partial_cells() {
         // Create a small model
@@ -2091,5 +2213,353 @@ mod tests {
         let mask1 = act1.fire_mask.unwrap();
         let mask2 = act2.fire_mask.unwrap();
         assert_eq!(mask1, mask2);
+    }
+
+    // ==================== Multi-step grid BPTT finite-difference check ====================
+    //
+    // INVESTIGATION: the full multi-step grid backward pass (accumulate_gradients) has no
+    // numerical-gradient test. This verifies it against central finite differences of the
+    // soft multi-step loss, in a multi-channel + loss_channel + BPTT configuration that
+    // matches the checkerboard setup (the regime the user struggled with).
+
+    /// Deterministic multi-step soft loss (sync forward), used as the ground-truth function
+    /// whose gradient we finite-difference.
+    fn multistep_soft_loss(
+        training: &TrainingLoop,
+        input: &NGrid,
+        target: &NGrid,
+        num_steps: usize,
+        loss_channel: usize,
+    ) -> Float {
+        let mut grid = input.clone();
+        for _ in 0..num_steps {
+            let (out, _) = training.forward_grid_soft(&grid);
+            grid = out;
+        }
+        TrainingLoop::compute_loss_channel(&grid, target, loss_channel)
+    }
+
+    #[test]
+    fn test_grid_bptt_matches_finite_difference() {
+        use crate::perception::ConnectionType;
+
+        // Small multi-channel model: C=2, K=2, perception [9->8->4->2->1]
+        // perception output = center(2) + K(2)*1*C(2) = 6 -> update [6->4->2]
+        let perception = PerceptionModule::new(
+            2,
+            2,
+            &[9, 8, 4, 2, 1],
+            &[
+                ConnectionType::FirstKernel,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+            ],
+        );
+        let update = UpdateModule::new(&[6, 4, 2]);
+        let model = DiffLogicCA::new(perception, update);
+
+        let mut config = TrainingConfig::default();
+        config.num_steps = 2;
+        config.async_training = false;
+        config.periodic = false;
+        config.loss_channel = Some(0);
+        config.batch_size = 1;
+
+        let mut training = TrainingLoop::new(model, config);
+
+        // Randomize ALL logits so we are away from the degenerate near-saturated
+        // pass-through regime (where every gradient is ~1e-5 and FD is ill-conditioned).
+        let mut rng = SimpleRng::new(7);
+        for kernel in &mut training.model.perception.kernels {
+            for layer in &mut kernel.layers {
+                for gate in &mut layer.gates {
+                    for i in 0..16 {
+                        gate.logits[i] = (rng.next_float() * 4.0) - 2.0;
+                    }
+                    gate.invalidate_cache();
+                }
+            }
+        }
+        for layer in &mut training.model.update.layers {
+            for gate in &mut layer.gates {
+                for i in 0..16 {
+                    gate.logits[i] = (rng.next_float() * 4.0) - 2.0;
+                }
+                gate.invalidate_cache();
+            }
+        }
+
+        // Input grid (2 channels, 3x3) with varied soft values, plus target on channel 0.
+        let mut input = NGrid::non_periodic(3, 3, 2);
+        let mut target = NGrid::non_periodic(3, 3, 2);
+        for y in 0..3 {
+            for x in 0..3 {
+                input.set(x, y, 0, 0.2 + 0.1 * ((x + 2 * y) as Float));
+                input.set(x, y, 1, 0.15 + 0.07 * ((2 * x + y) as Float));
+                target.set(x, y, 0, if (x + y) % 2 == 0 { 0.9 } else { 0.1 });
+            }
+        }
+
+        let num_steps = training.config.num_steps;
+
+        // Analytic gradients via the manual BPTT.
+        let mut step_grids: Vec<NGrid> = vec![input.clone()];
+        let mut step_acts: Vec<GridActivations> = Vec::new();
+        for _ in 0..num_steps {
+            let (o, a) = training.forward_grid_soft(step_grids.last().unwrap());
+            step_grids.push(o);
+            step_acts.push(a);
+        }
+        let mut pg = training.create_perception_grad_accum();
+        let mut ug = training.create_update_grad_accum();
+        training.accumulate_gradients(&step_grids, &step_acts, &target, &mut pg, &mut ug);
+
+        let eps: Float = 1e-3;
+
+        // Helper: central FD for one logit, comparing to the supplied analytic value.
+        // Returns (analytic, numerical).
+        let mut max_abs_err: Float = 0.0;
+        let mut worst = String::new();
+
+        // Probe a representative spread of parameters across both modules / layers / channels.
+        // (module, layer, gate, logit, analytic)
+        enum Mod { Update, Perception(usize) } // Perception(kernel)
+        let probes: Vec<(Mod, usize, usize, usize, Float)> = vec![
+            (Mod::Update, 0, 0, 1, ug[0][0][1]),
+            (Mod::Update, 0, 1, 6, ug[0][1][6]),
+            (Mod::Update, 1, 0, 9, ug[1][0][9]),
+            // Perception kernel 0: gradients are summed over channels in pg.
+            (Mod::Perception(0), 0, 0, 1, pg[0][0][0][1]),
+            (Mod::Perception(0), 3, 0, 14, pg[0][3][0][14]),
+            (Mod::Perception(1), 0, 2, 5, pg[1][0][2][5]),
+            (Mod::Perception(1), 2, 1, 3, pg[1][2][1][3]),
+        ];
+
+        for (m, layer, gate, logit, analytic) in probes {
+            // Save / perturb / restore.
+            let plus;
+            let minus;
+            match m {
+                Mod::Update => {
+                    let orig = training.model.update.layers[layer].gates[gate].logits[logit];
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig + eps;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                    plus = multistep_soft_loss(&training, &input, &target, num_steps, 0);
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig - eps;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                    minus = multistep_soft_loss(&training, &input, &target, num_steps, 0);
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                }
+                Mod::Perception(k) => {
+                    let orig =
+                        training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit];
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] =
+                        orig + eps;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                    plus = multistep_soft_loss(&training, &input, &target, num_steps, 0);
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] =
+                        orig - eps;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                    minus = multistep_soft_loss(&training, &input, &target, num_steps, 0);
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] =
+                        orig;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                }
+            }
+            let numerical = (plus - minus) / (2.0 * eps);
+            let err = (numerical - analytic).abs();
+            if err > max_abs_err {
+                max_abs_err = err;
+                worst = format!(
+                    "layer={} gate={} logit={} analytic={:.6} numerical={:.6}",
+                    layer, gate, logit, analytic, numerical
+                );
+            }
+            eprintln!(
+                "[BPTT-FD] layer={} gate={} logit={} analytic={:.6} numerical={:.6} err={:.2e}",
+                layer, gate, logit, analytic, numerical, err
+            );
+        }
+
+        assert!(
+            max_abs_err < 2e-2,
+            "Grid BPTT gradient disagrees with finite difference. Worst: {} (abs err {:.3e})",
+            worst,
+            max_abs_err
+        );
+    }
+
+    /// Deterministic ASYNC multi-step soft loss. Uses a fresh RNG seeded identically each
+    /// call so the fire-mask sequence is reproducible — required for a valid finite difference.
+    fn multistep_soft_loss_async(
+        training: &TrainingLoop,
+        input: &NGrid,
+        target: &NGrid,
+        num_steps: usize,
+        loss_channel: usize,
+        seed: u64,
+    ) -> Float {
+        let mut rng = SimpleRng::new(seed);
+        let mut grid = input.clone();
+        for _ in 0..num_steps {
+            let (out, _) = training.forward_grid_soft_async(&grid, &mut rng);
+            grid = out;
+        }
+        TrainingLoop::compute_loss_channel(&grid, target, loss_channel)
+    }
+
+    #[test]
+    fn test_async_grid_bptt_matches_finite_difference() {
+        use crate::perception::ConnectionType;
+
+        // Same small multi-channel model as the sync test.
+        let perception = PerceptionModule::new(
+            2,
+            2,
+            &[9, 8, 4, 2, 1],
+            &[
+                ConnectionType::FirstKernel,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+                ConnectionType::Unique,
+            ],
+        );
+        let update = UpdateModule::new(&[6, 4, 2]);
+        let model = DiffLogicCA::new(perception, update);
+
+        let mut config = TrainingConfig::default();
+        config.num_steps = 3;
+        config.async_training = true;
+        config.fire_rate = 0.6;
+        config.periodic = false;
+        config.loss_channel = Some(0);
+        config.batch_size = 1;
+
+        let mut training = TrainingLoop::new(model, config);
+
+        // Randomize logits away from the saturated pass-through regime.
+        let mut rng = SimpleRng::new(11);
+        for kernel in &mut training.model.perception.kernels {
+            for layer in &mut kernel.layers {
+                for gate in &mut layer.gates {
+                    for i in 0..16 {
+                        gate.logits[i] = (rng.next_float() * 4.0) - 2.0;
+                    }
+                    gate.invalidate_cache();
+                }
+            }
+        }
+        for layer in &mut training.model.update.layers {
+            for gate in &mut layer.gates {
+                for i in 0..16 {
+                    gate.logits[i] = (rng.next_float() * 4.0) - 2.0;
+                }
+                gate.invalidate_cache();
+            }
+        }
+
+        // A larger grid so the fire mask actually varies cell-to-cell.
+        let w = 5;
+        let h = 5;
+        let mut input = NGrid::non_periodic(w, h, 2);
+        let mut target = NGrid::non_periodic(w, h, 2);
+        for y in 0..h {
+            for x in 0..w {
+                input.set(x, y, 0, 0.2 + 0.05 * ((x + 2 * y) as Float));
+                input.set(x, y, 1, 0.15 + 0.04 * ((2 * x + y) as Float));
+                target.set(x, y, 0, if (x + y) % 2 == 0 { 0.9 } else { 0.1 });
+            }
+        }
+
+        let num_steps = training.config.num_steps;
+        let fire_seed: u64 = 0xA5A5_1234;
+
+        // Analytic gradients via the async BPTT, using activations (incl. fire masks)
+        // produced by the SAME fire_seed.
+        let mut fwd_rng = SimpleRng::new(fire_seed);
+        let mut step_grids: Vec<NGrid> = vec![input.clone()];
+        let mut step_acts: Vec<GridActivations> = Vec::new();
+        for _ in 0..num_steps {
+            let (o, a) = training.forward_grid_soft_async(step_grids.last().unwrap(), &mut fwd_rng);
+            step_grids.push(o);
+            step_acts.push(a);
+        }
+        // Sanity: at least one cell must be masked off at some step, else this is just the sync path.
+        let any_masked = step_acts.iter().any(|a| {
+            a.fire_mask
+                .as_ref()
+                .map_or(false, |m| m.iter().any(|&f| !f))
+        });
+        assert!(any_masked, "Test setup error: no cell was ever masked off");
+
+        let mut pg = training.create_perception_grad_accum();
+        let mut ug = training.create_update_grad_accum();
+        training.accumulate_gradients(&step_grids, &step_acts, &target, &mut pg, &mut ug);
+
+        let eps: Float = 1e-2;
+        let mut max_abs_err: Float = 0.0;
+        let mut worst = String::new();
+
+        enum Mod { Update, Perception(usize) }
+        let probes: Vec<(Mod, usize, usize, usize, Float)> = vec![
+            (Mod::Update, 0, 0, 1, ug[0][0][1]),
+            (Mod::Update, 0, 1, 7, ug[0][1][7]),
+            (Mod::Update, 1, 0, 9, ug[1][0][9]),
+            (Mod::Perception(0), 0, 0, 1, pg[0][0][0][1]),
+            (Mod::Perception(0), 2, 0, 11, pg[0][2][0][11]),
+            (Mod::Perception(1), 1, 1, 6, pg[1][1][1][6]),
+        ];
+
+        for (m, layer, gate, logit, analytic) in probes {
+            let plus;
+            let minus;
+            match m {
+                Mod::Update => {
+                    let orig = training.model.update.layers[layer].gates[gate].logits[logit];
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig + eps;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                    plus = multistep_soft_loss_async(&training, &input, &target, num_steps, 0, fire_seed);
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig - eps;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                    minus = multistep_soft_loss_async(&training, &input, &target, num_steps, 0, fire_seed);
+                    training.model.update.layers[layer].gates[gate].logits[logit] = orig;
+                    training.model.update.layers[layer].gates[gate].invalidate_cache();
+                }
+                Mod::Perception(k) => {
+                    let orig =
+                        training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit];
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] = orig + eps;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                    plus = multistep_soft_loss_async(&training, &input, &target, num_steps, 0, fire_seed);
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] = orig - eps;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                    minus = multistep_soft_loss_async(&training, &input, &target, num_steps, 0, fire_seed);
+                    training.model.perception.kernels[k].layers[layer].gates[gate].logits[logit] = orig;
+                    training.model.perception.kernels[k].layers[layer].gates[gate].invalidate_cache();
+                }
+            }
+            let numerical = (plus - minus) / (2.0 * eps);
+            let err = (numerical - analytic).abs();
+            if err > max_abs_err {
+                max_abs_err = err;
+                worst = format!(
+                    "layer={} gate={} logit={} analytic={:.6} numerical={:.6}",
+                    layer, gate, logit, analytic, numerical
+                );
+            }
+            eprintln!(
+                "[ASYNC-BPTT-FD] layer={} gate={} logit={} analytic={:.6} numerical={:.6} err={:.2e}",
+                layer, gate, logit, analytic, numerical, err
+            );
+        }
+
+        assert!(
+            max_abs_err < 2e-2,
+            "ASYNC grid BPTT gradient disagrees with finite difference. Worst: {} (abs err {:.3e})",
+            worst,
+            max_abs_err
+        );
     }
 }

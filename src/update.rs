@@ -14,8 +14,11 @@
 use crate::Float;
 use crate::grid::NNeighborhood;
 use crate::optimizer::AdamW;
-use crate::perception::{unique_connections, GateLayer, PerceptionModule};
+use crate::perception::{
+    generate_connections_seeded, unique_connections, ConnectionType, GateLayer, PerceptionModule,
+};
 use crate::gates::{BinaryOp, ProbabilisticGate};
+use crate::training::SimpleRng;
 
 /// Update module that transforms perception output to next cell state
 ///
@@ -51,6 +54,41 @@ impl UpdateModule {
             let in_dim = layer_sizes[i];
             let out_dim = layer_sizes[i + 1];
             let wires = unique_connections(in_dim, out_dim);
+            layers.push(GateLayer::new(out_dim, wires));
+        }
+
+        Self {
+            input_size,
+            output_channels,
+            layers,
+            layer_sizes: layer_sizes.to_vec(),
+        }
+    }
+
+    /// Create an update module with randomly-permuted per-layer wiring (reference behaviour).
+    ///
+    /// Identical to `new` except each layer's `unique_connections` are permuted from a
+    /// seed-derived RNG, matching the reference's `get_unique_connections` (which ends with a
+    /// random gate-order permutation). The fixed deterministic wiring in `new` produces a
+    /// highly local graph; for the deep 50-step async rollout that poor mixing is the leading
+    /// suspect for the soft/hard convergence gap.
+    pub fn new_seeded(layer_sizes: &[usize], seed: u64) -> Self {
+        assert!(layer_sizes.len() >= 2, "Need at least input and output layers");
+
+        let input_size = layer_sizes[0];
+        let output_channels = layer_sizes[layer_sizes.len() - 1];
+
+        let mut rng = SimpleRng::new(seed);
+        let mut layers = Vec::new();
+        for i in 0..(layer_sizes.len() - 1) {
+            let in_dim = layer_sizes[i];
+            let out_dim = layer_sizes[i + 1];
+            let wires = generate_connections_seeded(
+                ConnectionType::Unique,
+                in_dim,
+                out_dim,
+                &mut rng,
+            );
             layers.push(GateLayer::new(out_dim, wires));
         }
 

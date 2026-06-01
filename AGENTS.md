@@ -1,234 +1,80 @@
-# Logicars - Differentiable Logic Cellular Automata
+# Logicars — Agent Guide
 
-## Getting Started
+Differentiable Logic Cellular Automata in Rust. Implements Google Research's
+[Differentiable Logic CA](https://google-research.github.io/self-organising-systems/difflogic-ca/):
+learnable logic-gate circuits that act as CA update rules (Game of Life, multi-channel
+checkerboard) and self-heal from damage.
 
-**IMPORTANT**: Before starting any work on this project, always read the documents in the `agents/` folder if it exists:
+> **Note on history:** earlier versions of this repo kept a separate `agents/` folder
+> (`INDEX.md`, `plan.md`, `implementation-log.md`, `qa-review.md`) and a `plans/` tree.
+> Those were removed — the project state now lives in the code, the git history, and
+> this file. Don't look for them.
 
-1. **`agents/INDEX.md`** - **READ FIRST** - Code index with file:line references. Search here before grepping codebase.
-2. **`agents/plan.md`** - Full development roadmap and phase requirements
-3. **`agents/implementation-log.md`** - Implementation state, learnings, and what's next
-4. **`agents/qa-review.md`** - Latest QA review with recommendations and blockers
-5. **`plans/INDEX.md`** - Implementation plans (performance, GPU, serialization) - read only when working on specific subsystems
+## Orientation (code map)
 
-**Token-saving tips**:
+Library crate (`src/`), ~8k lines. Re-exports are in `src/lib.rs`.
 
-- **Code navigation**: Use `agents/INDEX.md` to find functions by name/purpose, then use the file:line references to view directly. Avoid grepping the full codebase unless the index doesn't have what you need.
-- **Planning documents**: Use `plans/INDEX.md` to find implementation plans (performance, GPU, serialization). Only read full plan documents when working on that specific subsystem.
-- **Completed work**: Don't re-read completed phase plans unless debugging. Check `agents/plan.md` for phase status (✅/🚧/⬜).
-- **Current focus**: Always read `agents/implementation-log.md` first - it has the current task and next steps in <150 lines.
+| Module | Lines | Responsibility |
+|--------|------:|----------------|
+| `gates.rs` | ~480 | `BinaryOp` (all 16 boolean ops) and `ProbabilisticGate` — soft (`softmax`) vs hard (`argmax`) gate decoding. |
+| `optimizer.rs` | ~110 | `AdamW` optimizer. |
+| `grid.rs` | ~800 | `NGrid` (1–128 channel grid), `NNeighborhood`, `BoundaryCondition` (periodic / fixed). |
+| `perception.rs` | ~1275 | `PerceptionModule` / `PerceptionKernel` — parallel learned perception kernels + their trainer. |
+| `update.rs` | ~990 | `UpdateModule`, `DiffLogicCA` (the full model = perception + update), and trainers. |
+| `training.rs` | ~2540 | `TrainingLoop`, `TrainingConfig`, `SimpleRng`. Sync + async (fire-rate) forward/backward (BPTT), loss/accuracy, eval rollouts. Largest module — most CA logic lives here. |
+| `checkerboard.rs` | ~570 | Checkerboard task: model factories, seed/target generators, loss/accuracy, size constants. |
+| `circuit.rs` | ~590 | `HardCircuit` export — freeze a trained soft model to discrete gates (JSON save/load). |
+| `gpu.rs` | — | GPU acceleration, behind the `gpu` feature. |
 
-This ensures you understand the current project state, what has been accomplished, and what needs to be done next.
+Binaries (`src/bin/`):
 
-#### 2. Create `agents/implementation-log.md` (Progress & Learnings)
+| Binary | Purpose |
+|--------|---------|
+| `train_gol` | Game of Life validation training. |
+| `train_checkerboard` | Checkerboard **sync** training. |
+| `train_checkerboard_async` | Checkerboard **async** (fire-rate) training + self-healing/robustness demos. |
+| `test_generalization` | Run a trained checkerboard model on larger grids. |
+| `analyze_checkerboard` | Inspect a trained `HardCircuit` model. |
+| `visualize_checkerboard` | Render an animated GIF of a checkerboard rollout. |
 
-Structure example:
+Reference implementation (the source of truth for intended behaviour):
+`reference/difflogic_ca.py`, `reference/diffLogic_CA.ipynb`, and the paper at
+`reference/research-paper/`.
 
-```markdown
-# Project Name Implementation Log
-
-## Development Workflow (PROVEN PATTERN)
-1. Create TodoList and, if on main, create a branch
-2. Write unit tests first
-3. Work until all success / exit criteria are met and tests all pass
-4. Compare implementations to reference intent (paper) and code (reference/.py or reference/*.ipynb)
-5. Commit every time something new works, meaning the 4 previous steps are complete, push it and open a PR if not yet opened
-...
-
-## Phase 0.1: First Component
-### Task : Description of atomic task
-
-**Date**: YYYY-MM-DD
-**Status**: ALL EXIT CRITERIA MET
-
-### What Was Implemented
-...
-
-### Test Results
-...
-
-### Exit Criteria: ✅ ALL MET
-- ✅ Criterion 1
-- ✅ Criterion 2
-...
-
-### Key Technical Decisions
-...
-
-### Important Learnings
-...
-
-### Commands for Next Developer
-```bash
-# How to run tests
-# How to verify this phase
-```
-
-## Next Steps
-
-**Phase X.X**: Description of what's next
-
-```
-
-#### Why These Documents Matter
-
-- **`plan.md`** is your north star - it prevents scope creep and ensures each phase has clear completion criteria
-- **`implementation-log.md`** is institutional memory - it captures what worked, what didn't, and why decisions were made
-- Together they enable any developer (human or AI) to pick up the project and continue effectively
-
-#### Maintaining These Documents
-
-As the project progresses, these documents can become unwieldy. **Periodically review and compact them**:
-
-**For `implementation-log.md`:**
-- Completed phases can be removed once stable (keep key learnings if useful for later phases)
-- Collapse multiple phase sections into summary tables when appropriate
-
-**For `plan.md`:**
-- Most of the time, doesn't need updatges
-- Remove or update phases that no longer apply due to architectural changes
-- Mark completed phases with ✅
-- Update exit criteria if experience shows they were unrealistic or need adjustment
-- Remove speculative future phases that are no longer relevant
-
-**When to compact:**
-- When documents exceed ~500 lines and become hard to scan
-- When major architectural decisions invalidate earlier plans
-- When starting a new major phase
-- When multiple sessions have added incremental updates that can be consolidated
-
-## Quick Reference
-
-### Build & Test Commands
+## Build & test
 
 ```bash
-# Run all unit tests
-cargo test --lib
-
-# Run tests with output
-cargo test --lib -- --nocapture
-
-# Build release binaries
-cargo build --release
-
-# Run single gate training demo
-cargo run --bin train_gate --release
-
-# Run layer training demo
-cargo run --bin train_layer --release
+cargo test --lib                     # all unit tests
+cargo test --lib -- --nocapture      # with stdout
+cargo build --release                # release binaries
+RUSTFLAGS="-C target-cpu=native" cargo build --release   # + AVX2/AVX-512
 ```
 
-### Project Overview
+## Key implementation details
 
-This project implements differentiable logic gates for learning cellular automata rules (particularly Conway's Game of Life) based on the paper [Differentiable Logic Cellular Automata](https://google-research.github.io/self-organising-systems/difflogic-ca/).
+- **Soft decoding** `softmax(weights)` during training (differentiable);
+  **hard decoding** `argmax(weights)` during inference (discrete).
+- **Pass-through gate** initialised to logit `10.0` for training stability.
+- **AdamW**, LR `0.05`, gradient clip `100.0`.
+- **Async mode** uses fire-rate masking: only a fraction of cells update per step,
+  driven by `TrainingLoop`'s RNG. Evaluation must not perturb that stream — use
+  `TrainingLoop::rollout_async_hard(input, num_steps, seed)`, which runs hard async
+  inference from a *local* RNG so multi-seed eval is reproducible.
+- The backward pass (sync + async BPTT) is **finite-difference verified** — there are
+  regression tests in `training.rs`. Don't "fix" the chain rule without re-deriving FD.
 
-### Key Implementation Details
+## Workflow
 
-- **Soft decoding**: `softmax(weights)` during training (differentiable)
-- **Hard decoding**: `argmax(weights)` during inference (discrete)
-- **Pass-through gate**: Initialized to logit=10.0 for training stability
-- **AdamW optimizer**: LR=0.05, gradient clipping=100.0
-- **All 16 binary operations** are available via `BinaryOp` enum
+Generic development loop (no project-specific doc files required):
 
-### Current Status
+1. **Branch** off `main` — `feature/`, `fix/`, or `docs/<description>`. Never commit to `main`.
+2. **TDD** — write/extend unit tests first, then implement, running `cargo test --lib`
+   continuously. Compare behaviour against the `reference/` implementation and the paper.
+3. **Commit often** with conventional messages (WHY over WHAT), smallest working commits.
+4. **Push & open a PR** (`gh` CLI) for human review when the work is complete and green.
 
-See `agents/implementation-log.md` for detailed progress. The project follows a phased approach from single gates to full CA training.
+### Long-running runs
 
-## LLM Agent Workflow
-
-**Critical**: These documents go in EVERY context window. Keep them compact, clear, and unambiguous.
-
-### The Development Loop
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ 1. READ DOCS                                            │
-│    └─ AGENTS.md → plan.md → implementation-log.md      │
-├─────────────────────────────────────────────────────────┤
-│ 2. CREATE PHASE PLAN                                    │
-│    └─ plans/phase-X.X-name.md (detailed tasks, tests)  │
-├─────────────────────────────────────────────────────────┤
-│ 3. IMPLEMENT                                            │
-│    └─ TDD: tests first → code → verify exit criteria   │
-├─────────────────────────────────────────────────────────┤
-│ 4. PUSH PR                                              │
-│    └─ Branch → PR → wait for human review              │
-├─────────────────────────────────────────────────────────┤
-│ 5. UPDATE DOCS (after human approval)                  │
-│    ├─ Update implementation-log.md (keep <100 lines)   │
-│    ├─ Mark phase complete in plan.md                   │
-│    └─ Merge PR                                          │
-└─────────────────────────────────────────────────────────┘
-        │                                        │
-        └────────── Loop back to step 1 ────────┘
-```
-
-### Document Maintenance Rules
-
-**`agents/plan.md`** (Can be longer, ~500 lines):
-
-- Full roadmap, all phases, exit criteria
-- Update when: phase completes, requirements change, major architectural shift
-- Mark phases with ✅/🚧/⬜ status
-- Keep technical details (hyperparameters, architectures)
-
-**`agents/implementation-log.md`** (MUST stay <100 lines):
-
-- **Purpose**: Prime LLM on current state and boundaries only
-- **NOT a detailed plan** - that goes in `plans/phase-X.X-name.md`
-- Update when: phase completes, boundaries change
-- Remove: completed phase details (keep only status table)
-- Keep: current phase pointer, boundaries (what NOT to do), critical learnings
-
-**After each phase completion**:
-
-1. Update implementation-log.md: mark phase done, update current phase, check line count
-2. Update plan.md: mark phase ✅, update status table if needed
-3. Archive detailed work in git commits (don't bloat the log)
-
-### Quick Development Steps
-
-1. Read phase requirements from `agents/plan.md`
-
-IF `plans/phase-X.X-name.md` for the current phase DOESN'T EXIST
-
-1. Create detailed implementation plan in `plans/phase-X.X-name.md`
-2. Commit with detailed message to plan/ branch (never to main)
-3. Push branch and create PR
-4. After human approval: update docs (keep log <100 lines), merge PR
-
-IF `plans/phase-X.X-name.md` for the current phase ALREADY EXISTS (committed recently)
-
-1. Create TodoWrite list with specific tasks
-2. Write unit tests for core functionality first
-3. Implement core logic, run `cargo test --lib` continuously
-4. Verify all exit criteria met
-5. Commit with detailed message (never to main)
-6. Push branch and create PR
-7. After human approval: update docs (keep log <100 lines), merge PR
-
-### Long-Running Tasks
-
-For any task that are not generative, e.g. `cargo run`:
-
-1. **Do NOT run it yourself** - it will timeout or block progress
-2. **Provide the command** to the human with clear instructions
-3. **Wait for feedback** - the human will run it and report results
-4. **Complete all your other independant work before handing off**
-5. **Continue based on results** - adjust approach if needed
-
-Example:
-
-```
-I've committed and pushed the changes. A training run is needed to observe the results.
-This training will take ~30 minutes. Please run:
-
-    cargo run --bin train_gol --release
-
-And let me know the final accuracy achieved.
-```
-
-### Completion Protocol
-
-Use the gh cli utility to manage interactions with Github.
-When working on a new phase / task independant of the previous one, create a new dedicated branch
-The human in the loop is responsible for reviewing your work through the PR's
+Full training runs (`cargo run --bin train_* --release`, no `--small`) take minutes to
+hours and the heavy async demos (4000-step robustness) dominate wall time. Don't block on
+them — hand the exact command to the human and continue independent work while they run.
