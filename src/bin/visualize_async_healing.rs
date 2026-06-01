@@ -6,13 +6,20 @@
 //!
 //! Usage:
 //!   cargo run --release --bin visualize_async_healing -- <model.json> [--prefix=NAME]
-//!       [--fire-rate=0.6] [--seed=42] [--damage=10] [--scale=8]
+//!       [--fire-rate=0.6] [--seed=42] [--damage=10] [--scale=8] [--sync-model=PATH]
 //!
-//! Produces three GIFs (NAME defaults to "async"):
+//! Produces four GIFs (NAME defaults to "async"):
 //!   NAME_rollout.gif     14x14, 50 async steps — pattern emerging from random noise
 //!   NAME_generalize.gif  56x56 (4x), 200 steps — generalization to a larger grid
 //!   NAME_heal.gif        56x56, 200 steps — a 10x10 center is zeroed for the first
 //!                        half (damage held), then released; watch the pattern regrow.
+//!   NAME_robust.gif      56x56, 200 steps — a 10x10 square at a *random* location is
+//!                        deactivated at every inference step (continuous perturbation),
+//!                        mirroring the reference's robustness simulation.
+//!
+//! If --sync-model=PATH is given, the same robustness perturbation is also rendered for
+//! that synchronously-trained model run synchronously, as NAME_robust_sync.gif — so the
+//! sync-trained and async-trained models can be compared side by side.
 
 use image::{codecs::gif::{GifEncoder, Repeat}, Frame, Rgba, RgbaImage};
 use logicars::{
@@ -60,6 +67,51 @@ fn damage_center(grid: &mut NGrid, size: usize) {
     }
 }
 
+/// Zero a `size`x`size` square at a *random* location across all channels.
+/// Used to model continuous perturbation: a fresh lesion every inference step.
+fn damage_random_square(grid: &mut NGrid, size: usize, rng: &mut SimpleRng) {
+    let (w, h) = (grid.width, grid.height);
+    let size = size.min(w).min(h);
+    // Pick a top-left so the square stays fully inside the grid.
+    let x0 = (rng.next_u64() as usize) % (w - size + 1);
+    let y0 = (rng.next_u64() as usize) % (h - size + 1);
+    for y in y0..(y0 + size) {
+        for x in x0..(x0 + size) {
+            for c in 0..grid.channels {
+                grid.set(x, y, c, 0.0);
+            }
+        }
+    }
+}
+
+/// Roll out `steps` inference steps while deactivating a random `damage`x`damage` square
+/// at every step. `async_mode` selects async fire-rate stepping vs. plain sync stepping,
+/// so the same routine renders both the async-trained and sync-trained models.
+fn robustness_frames(
+    circuit: &HardCircuit,
+    async_mode: bool,
+    fire_rate: Float,
+    n: usize,
+    steps: usize,
+    damage: usize,
+    scale: u32,
+    frame_delay: image::Delay,
+    rng: &mut SimpleRng,
+) -> Vec<Frame> {
+    let mut grid = create_random_seed(n, CHECKERBOARD_CHANNELS, rng);
+    let mut frames = vec![Frame::from_parts(grid_to_image(&grid, scale), 0, 0, frame_delay)];
+    for _ in 0..steps {
+        grid = if async_mode {
+            circuit.step_async(&grid, fire_rate, rng)
+        } else {
+            circuit.step(&grid)
+        };
+        damage_random_square(&mut grid, damage, rng); // fresh random lesion each step
+        frames.push(Frame::from_parts(grid_to_image(&grid, scale), 0, 0, frame_delay));
+    }
+    frames
+}
+
 fn write_gif(path: &str, frames: Vec<Frame>) {
     let file = File::create(path).expect("create gif");
     let mut enc = GifEncoder::new(file);
@@ -101,6 +153,11 @@ fn main() {
     let seed: u64 = parse(&args, "--seed=", 42);
     let damage: usize = parse(&args, "--damage=", 10);
     let big_scale: u32 = parse(&args, "--scale=", 8);
+    let sync_model_path: Option<String> = args
+        .iter()
+        .find(|a| a.starts_with("--sync-model="))
+        .and_then(|a| a.strip_prefix("--sync-model="))
+        .map(|s| s.to_string());
 
     let circuit = HardCircuit::load(&model_path).unwrap_or_else(|e| {
         eprintln!("Error loading {model_path}: {e}");
@@ -164,5 +221,37 @@ fn main() {
         write_gif(&format!("{prefix}_heal.gif"), frames);
     }
 
-    println!("\nDone. Open the GIFs to see rollout / generalization / self-healing.");
+    // ---- 4. Robustness: a random damage x damage square is deactivated EVERY step ----
+    // Mirrors the reference's robustness simulation: rather than a single held lesion,
+    // a fresh square is knocked out at a random location at each inference time-step.
+    {
+        let n = CHECKERBOARD_ASYNC_GRID_SIZE * 4;
+        let steps = CHECKERBOARD_ASYNC_STEPS * 4;
+        let frames = robustness_frames(
+            &circuit, true, fire_rate, n, steps, damage, big_scale, frame_delay, &mut rng,
+        );
+        println!("robust(async): random {damage}x{damage} square deactivated each of {steps} steps");
+        write_gif(&format!("{prefix}_robust.gif"), frames);
+    }
+
+    // ---- 4b. Same robustness test for a sync-trained model (run synchronously) ----
+    if let Some(sync_path) = sync_model_path {
+        match HardCircuit::load(&sync_path) {
+            Ok(sync_circuit) => {
+                let n = CHECKERBOARD_ASYNC_GRID_SIZE * 4;
+                let steps = CHECKERBOARD_ASYNC_STEPS * 4;
+                let frames = robustness_frames(
+                    &sync_circuit, false, fire_rate, n, steps, damage, big_scale, frame_delay,
+                    &mut rng,
+                );
+                println!(
+                    "robust(sync): {sync_path} — random {damage}x{damage} square deactivated each of {steps} steps"
+                );
+                write_gif(&format!("{prefix}_robust_sync.gif"), frames);
+            }
+            Err(e) => eprintln!("Warning: could not load sync model {sync_path}: {e}"),
+        }
+    }
+
+    println!("\nDone. Open the GIFs to see rollout / generalization / self-healing / robustness.");
 }
